@@ -18,43 +18,28 @@ class QCClient(discord.Client):
         self.joining_allowed = None
         self.clockwise = None
         self.quiz_file = None
+        self.direct_participant = None
+        self.pounces = None
+        self.pounced = None
+        self.qm_channel = None
 
     async def on_ready(self):
         print(self.user)
 
     async def on_message(self, message):
-        split_message = message.content.split()
-
-        if split_message[0] == "qc!help":
+        if message.content == "qc!help":
             await self.help(message)
             return
 
-        if split_message[0] == "qc!start_quiz":
-            if not self.quiz_ongoing:
-                await self.start_quiz(message, split_message)
-            else:
-                return_message = "```There's already a fucking quiz" + \
-                        f"({self.quiz_name}) going on, ya moron.```"
-                await message.channel.send(return_message)
-            return
-
-        if split_message[0] == "qc!end_quiz":
+        if message.content == "qc!start_joining":
             if self.quiz_ongoing:
-                await self.end_quiz(message)
-            else:
-                return_message = "```There's no ongoing quiz, ya shitfuck.```"
-                await message.channel.send(return_message)
-            return
-
-        if split_message[0] == "qc!start_joining":
-            if self.quiz_ongoing:
-                if self.joining_allowed:
-                    return_message = "```Joining is already allowed, ya weirdo.```"
+                if message.author != self.quiz_master:
+                    return_message = "```You are not the QM, ya idjit.```"
                     await message.channel.send(return_message)
                     return
 
-                if message.author != self.quiz_master:
-                    return_message = "```You are not the QM, you idjit.```"
+                if self.joining_allowed:
+                    return_message = "```Joining is already allowed, ya weirdo.```"
                     await message.channel.send(return_message)
                     return
 
@@ -70,15 +55,15 @@ class QCClient(discord.Client):
                 await message.channel.send(return_message)
             return
 
-        if split_message[0] == "qc!end_joining":
+        if message.content == "qc!end_joining":
             if self.quiz_ongoing:
-                if not self.joining_allowed:
-                    return_message = "```Joining is already forbidden, ya nitwit.```"
+                if message.author != self.quiz_master:
+                    return_message = "```You are not the QM, ya idjit.```"
                     await message.channel.send(return_message)
                     return
 
-                if message.author != self.quiz_master:
-                    return_message = "```You are not the QM, you idjit.```"
+                if not self.joining_allowed:
+                    return_message = "```Joining is already forbidden, ya nitwit.```"
                     await message.channel.send(return_message)
                     return
 
@@ -90,6 +75,125 @@ class QCClient(discord.Client):
                 await message.channel.send(return_message)
             else:
                 return_message = "```There's no ongoing quiz, ya retard.```"
+                await message.channel.send(return_message)
+            return
+
+        if message.content == "qc!start_pouncing":
+            if self.quiz_ongoing:
+                if message.author != self.quiz_master:
+                    return_message = "```You are not the QM, ya idjit.```"
+                    await message.channel.send(return_message)
+                    return
+
+                if self.pouncing_allowed:
+                    return_message = "```Pouncing is already allowed, ya bonehead.```"
+                    await message.channel.send(return_message)
+                    return
+
+                self.pouncing_allowed = True
+                self.pounces = []
+                self.pounced = {}
+
+                return_message = "```Pouncing for this question is now allowed.\n\n"
+                return_message += "DM your answers to the bot as qc!pounce answer.```"
+
+                await message.channel.send(return_message)
+            else:
+                return_message = "```There's no ongoing quiz, ya knucklehead.```"
+                await message.channel.send(return_message)
+            return
+
+        if message.content == "qc!end_pouncing":
+            if self.quiz_ongoing:
+                if message.author != self.quiz_master:
+                    return_message = "```You are not the QM, ya idjit.```"
+                    await message.channel.send(return_message)
+                    return
+
+                if not self.pouncing_allowed:
+                    return_message = "```Pouncing is already closed, ya birdbrain.```"
+                    await message.channel.send(return_message)
+                    return
+
+                self.pouncing_allowed = False
+                if self.qm_channel is None:
+                    self.qm_channel = await self.quiz_master.create_dm()
+
+                return_message = "\n\n".join(self.pounces)
+                return_message = "```Pounces for this question - \n\n" + return_message + "```"
+                await self.qm_channel.send(return_message)
+            else:
+                return_message = "```There's no ongoing quiz, ya knucklehead.```"
+                await message.channel.send(return_message)
+            return
+
+        if message.content == "qc!end_quiz":
+            if self.quiz_ongoing:
+                if message.author != self.quiz_master:
+                    return_message = "```You are not the QM, ya cuck.```"
+                    await message.channel.send(return_message)
+                    return
+                await self.end_quiz(message)
+            else:
+                return_message = "```There's no ongoing quiz, ya shitfuck.```"
+                await message.channel.send(return_message)
+            return
+
+        if message.content == "qc!pass":
+            if self.quiz_ongoing:
+                await self.pass_question(message)
+            else:
+                return_message = "```There's no ongoing quiz, ya dolt.```"
+                await message.channel.send(return_message)
+            return
+
+        if message.content == "qc!remind":
+            if self.quiz_ongoing:
+                await self.remind(message)
+            else:
+                return_message = "```There's no ongoing quiz, ya arse.```"
+                await message.channel.send(return_message)
+            return
+
+        if message.content == "qc!bounce":
+            if self.quiz_ongoing:
+                if message.author != self.quiz_master:
+                    return_message = "```You are not the QM, you dumbbell.```"
+                    await message.channel.send(return_message)
+                    return
+
+                await self.bounce(message)
+            else:
+                return_message = "```There's no ongoing quiz, ya dolt.```"
+                await message.channel.send(return_message)
+            return
+
+        if message.content == "qc!list_participants":
+            if self.quiz_ongoing:
+                await self.list_participants(message)
+            else:
+                return_message = "```There's no ongoing quiz, ya dimwit.```"
+                await message.channel.send(return_message)
+            return
+
+        if message.content == "qc!scoreboard":
+            if self.quiz_ongoing:
+                await self.scoreboard(message)
+            else:
+                return_message = "```There's no ongoing quiz, ya dunce.```"
+                await message.channel.send(return_message)
+            return
+
+        split_message = message.content.split()
+        if len(split_message) == 0:
+            split_message = [message.content]
+
+        if split_message[0] == "qc!start_quiz":
+            if not self.quiz_ongoing:
+                await self.start_quiz(message, split_message)
+            else:
+                return_message = "```There's already a fucking quiz" + \
+                        f"({self.quiz_name}) going on, ya moron.```"
                 await message.channel.send(return_message)
             return
 
@@ -106,47 +210,10 @@ class QCClient(discord.Client):
                 await message.channel.send(return_message)
             return
 
-        if split_message[0] == "qc!list_participants":
-            if self.quiz_ongoing:
-                await self.list_participants(message)
-            else:
-                return_message = "```There's no ongoing quiz, ya dimwit.```"
-                await message.channel.send(return_message)
-            return
-
-        if split_message[0] == "qc!scoreboard":
-            if self.quiz_ongoing:
-                await self.scoreboard(message)
-            else:
-                return_message = "```There's no ongoing quiz, ya dunce.```"
-                await message.channel.send(return_message)
-            return
-
-        if split_message[0] == "qc!pass":
-            if self.quiz_ongoing:
-                await self.pass_question(message)
-            else:
-                return_message = "```There's no ongoing quiz, ya dolt.```"
-                await message.channel.send(return_message)
-            return
-
-        if split_message[0] == "qc!bounce":
-            if self.quiz_ongoing:
-                if message.author != self.quiz_master:
-                    return_message = "```You are not the QM, you dumbbell.```"
-                    await message.channel.send(return_message)
-                    return
-
-                await self.bounce(message)
-            else:
-                return_message = "```There's no ongoing quiz, ya dolt.```"
-                await message.channel.send(return_message)
-            return
-
         if split_message[0] == "qc!score":
             if self.quiz_ongoing:
                 if message.author != self.quiz_master:
-                    return_message = "```You are not the QM, you idjit.```"
+                    return_message = "```You are not the QM, ya idjit.```"
                     await message.channel.send(return_message)
                     return
 
@@ -182,35 +249,61 @@ class QCClient(discord.Client):
                 await message.channel.send(return_message)
             return
 
+        if split_message[0] == "qc!pounce":
+            if self.quiz_ongoing:
+
+                if not self.pouncing_allowed:
+                    return_message = "```Pouncing is closed, ya moron.```"
+                    await message.channel.send(return_message)
+                    return
+
+                if message.channel.type != discord.ChannelType.private:
+                    return_message = "```Pounce on DM, chutiye.```"
+                    await message.channel.send(return_message)
+                    return
+
+                await self.pounce(message, split_message)
+            else:
+                return_message = "```There's no ongoing quiz, ya knucklehead.```"
+                await message.channel.send(return_message)
+            return
+
     async def help(self, message):
         return_message = "```Help for BPHC Quiz Club Bot.\n\n"
         return_message += "Here's a list of commands -\n\n"
+        return_message += "General commands -\n\n"
         return_message += "\tqc!help - get a list of commands\n\n"
-        return_message += "\tqc!start_quiz quiz_name - start a quiz with given name with you as qm\n\n"
-        return_message += "\tqc!end_quiz - end the quiz\n\n"
-        return_message += "\tqc!start_joining - for qm start joining period for quiz participants\n\n"
-        return_message += "\tqc!end_joining - for qm end joining period for quiz participants\n\n"
+        return_message += "\tqc!start_quiz quiz_name - start a quiz with given name with you as QM\n\n"
         return_message += "\tqc!join nick - join quiz with given nick as your team-name\n\n"
         return_message += "\tqc!list_participants - view a list of participants\n\n"
         return_message += "\tqc!scoreboard - view the current scoreboard\n\n"
-        return_message += "\tqc!pass - pass your direct\n\n"
-        return_message += "\tqc!bounce - for qm to bounce the direct\n\n"
-        return_message += "\tqc!score [participans ...] points - for qm to score the participants\n\n"
+        return_message += "\tqc!pass - pass your direct to the next team\n\n"
+        return_message += "\tqc!remind - remind the current participant to answer\n\n"
+        return_message += "\tqc!pounce answer - DM the pounce answer to BOT (not on channel)\n\n"
+        return_message += "QM Only commands - \n\n"
+        return_message += "\tqc!end_quiz - end the quiz\n\n"
+        return_message += "\tqc!start_joining - start joining period for quiz participants\n\n"
+        return_message += "\tqc!end_joining - end joining period for quiz participants\n\n"
         return_message += "\tqc!pounce_round dir - new pounce round in given direction\n\n"
         return_message += "\tqc!next_question direct_team - give next question to direct team\n\n"
+        return_message += "\tqc!start_pouncing - start pouncing period\n\n"
+        return_message += "\tqc!end_pouncing - end pouncing period\n\n"
+        return_message += "\tqc!bounce - bounce the direct to next team\n\n"
+        return_message += "\tqc!score [participant1 participant2 ...] points - to add scores\n\n"
         return_message += "```"
+
         await message.channel.send(return_message)
 
     async def start_quiz(self, message, split_message):
         if len(split_message) < 2:
             return_message = "```That is not how it's done, ya infidel.\n\n"
             return_message += "correct usage:\n"
-            return_message += "\t\tqc!start_quiz quiz_name```"
+            return_message += "\tqc!start_quiz quiz_name```"
             await message.channel.send(return_message)
             return
 
         self.quiz_ongoing = True
-        self.quiz_name = split_message[1]
+        self.quiz_name = message.content.split(" ", 1)[1]
         self.quiz_master = message.author
         self.scorers = []
         self.quiz_participants = {}
@@ -225,6 +318,8 @@ class QCClient(discord.Client):
         await message.channel.send(return_message)
 
     async def end_quiz(self, message):
+        return_message = f"```Ending quiz - {self.quiz_name}.```"
+
         self.quiz_ongoing = None
         self.quiz_name = None
         self.quiz_master = None
@@ -234,19 +329,24 @@ class QCClient(discord.Client):
         self.curr_participant = None
         self.pouncing_allowed = None
         self.joining_allowed = None
+        self.clockwise = None
+        self.quiz_file = None
+        self.direct_participant = None
+        self.pounces = None
+        self.pounced = None
+        self.qm_channel = None
 
-        return_message = f"```Ending quiz - {self.quiz_name}.```"
         await message.channel.send(return_message)
 
     async def join_quiz(self, message, split_message):
         if len(split_message) < 2:
             return_message = "```That is not how it's done, ya asshole.\n\n"
             return_message += "correct usage:\n"
-            return_message += "\t\tqc!join nick```"
+            return_message += "\tqc!join nick```"
             await message.channel.send(return_message)
             return
 
-        if self.participating.get(str(message.author)):
+        if self.participating.get(str(message.author)) is not None:
             return_message = "```You are already participating, ya mofo.\n\n```"
             await message.channel.send(return_message)
             return
@@ -257,10 +357,10 @@ class QCClient(discord.Client):
                 "score": 0,
                 "num": self.no_of_participants
         }
+        self.participating[str(message.author)] = self.no_of_participants
+
         self.quiz_participants[self.no_of_participants] = participant
         self.no_of_participants += 1
-
-        self.participating[str(message.author)] = True
 
         return_message = message.author.mention + \
             f" `has joined the quiz as " + \
@@ -303,35 +403,75 @@ class QCClient(discord.Client):
 
     async def pass_question(self, message):
         if message.author != self.quiz_participants[self.curr_participant]["id"]:
-            return_message = "``` It's not your turn, you. blockhead```"
+            return_message = "``` It's not your turn, you blockhead.```"
             await message.channel.send(return_message)
             return
 
         return_message = message.author.mention + " `has passed his turn.`\n\n"
-        if self.clockwise:
-            self.curr_participant = (self.curr_participant + 1) % self.no_of_participants
-        else:
-            self.curr_participant = (self.curr_participant - 1) % self.no_of_participants
+        while True:
+            if self.clockwise:
+                self.curr_participant = (self.curr_participant + 1) % self.no_of_participants
+            else:
+                self.curr_participant = (self.curr_participant - 1) % self.no_of_participants
+
+            if self.curr_participant == self.direct_participant:
+                break
+
+            next_participant = self.quiz_participants[self.curr_participant]
+            if not self.pounced.get(str(next_participant["id"])):
+                break
+            else:
+                return_message += str(next_participant["id"]) + " (Number. {}) has pounced, moving on.\n".format(
+                    self.curr_participant + 1
+                )
+
+        if self.curr_participant == self.direct_participant:
+            return_message += "```None of you got it, ya brainless cucks.```"
+            await message.channel.send(return_message)
+            return
 
         next_participant = self.quiz_participants[self.curr_participant]
-        return_message += next_participant["id"].mention + " `'s turn to answer next.`"
+        return_message += next_participant["id"].mention + "`'s (Number. {}) turn to answer next.`".format(
+            self.curr_participant + 1
+        )
         await message.channel.send(return_message)
 
     async def bounce(self, message):
-        if self.clockwise:
-            self.curr_participant = (self.curr_participant + 1) % self.no_of_participants
-        else:
-            self.curr_participant = (self.curr_participant - 1) % self.no_of_participants
+        return_message = "`Question is being bounced over.\n\n`"
+
+        while True:
+            if self.clockwise:
+                self.curr_participant = (self.curr_participant + 1) % self.no_of_participants
+            else:
+                self.curr_participant = (self.curr_participant - 1) % self.no_of_participants
+
+            if self.curr_participant == self.direct_participant:
+                break
+
+            next_participant = self.quiz_participants[self.curr_participant]
+            if not self.pounced.get(str(next_participant["id"])):
+                break
+            else:
+                return_message += str(next_participant["id"]) + " (Number. {}) has pounced, moving on.\n".format(
+                    self.curr_participant + 1
+                )
+
+        if self.curr_participant == self.direct_participant:
+            return_message += "```None of you got it, ya brainless cucks.```"
+            await message.channel.send(return_message)
+            return
 
         next_participant = self.quiz_participants[self.curr_participant]
-        return_message = next_participant["id"].mention + " `'s turn to answer next.`"
+        return_message += next_participant["id"].mention + " `'s (Number. {}) turn to answer next.`".format(
+            self.curr_participant + 1
+        )
         await message.channel.send(return_message)
 
     async def score(self, message, split_message):
         if len(split_message) < 2:
             return_message = "```That is not how it's done, ya ignoramus.\n\n"
             return_message += "correct usage:\n"
-            return_message += "\t\tqc!score [participans ...] points```"
+            return_message += "\tqc!score [participants ...] points```"
             await message.channel.send(return_message)
             return
 
@@ -365,7 +505,7 @@ class QCClient(discord.Client):
         if len(split_message) < 2:
             return_message = "```That is not how it's done, ya imbecile.\n\n"
             return_message += "correct usage:\n"
-            return_message += "\t\tqc!pounce_round dir```"
+            return_message += "\tqc!pounce_round dir```"
             await message.channel.send(return_message)
             return
 
@@ -386,29 +526,71 @@ class QCClient(discord.Client):
         if len(split_message) < 2:
             return_message = "```That is not how it's done, ya dork.\n\n"
             return_message += "correct usage:\n"
-            return_message += "\t\tqc!next_question direct_team```"
+            return_message += "\tqc!next_question direct_team```"
             await message.channel.send(return_message)
             return
 
         direct_participant = None
         try:
             self.curr_participant = int(split_message[-1]) - 1
-            direct_participant = self.quiz_participants[self.curr_participant]["id"]
+            direct_participant = self.quiz_participants[self.curr_participant]
         except Exception:
             return_message = "``` Team numbers are supposed to be integers, you fucktard.```"
             await message.channel.send(return_message)
             return
 
+        self.direct_participant = self.curr_participant
         return_message = ""
         if self.quiz_file is not None:
             pass
 
-        return_message = "`New question -` " + direct_participant.mention + "`'s direct.`"
+        return_message = "`New question -` " + direct_participant["id"].mention + "`'s (Number. {}) direct.`".format(
+            direct_participant["num"] + 1
+        )
 
+        await message.channel.send(return_message)
+
+    async def remind(self, message):
+        participant = self.quiz_participants[self.curr_participant]
+        return_message = participant["id"].mention + " `(Number. {}) - It's your fucking turn, twit.`".format(
+            participant["num"] + 1)
+        await message.channel.send(return_message)
+
+    async def pounce(self, message, split_message):
+        if self.participating.get(str(message.author)) is None:
+            return_message = "```You are not participating in the quiz, ya git.```"
+            await message.channel.send(return_message)
+            return
+
+        if self.pounced.get(str(message.author)):
+            return_message = "```You already pounced, ya muppet.```"
+            await message.channel.send(return_message)
+            return
+
+        if len(split_message) < 2:
+            return_message = "```That is not how it's done, ya dum-dum.\n\n"
+            return_message += "correct usage:\n"
+            return_message += "\tqc!pounce answer```"
+            await message.channel.send(return_message)
+            return
+
+        self.pounced[str(message.author)] = True
+        answer_content = message.content.split(" ", 1)[1]
+
+        pounce_answer = "\t{} (Number. {}) - {}\n\n".format(
+            message.author,
+            self.participating[str(message.author)] + 1,
+            answer_content
+        )
+
+        self.pounces.append(pounce_answer)
+
+        return_message = "```You have pounced for this question with the answer -\n\n"
+        return_message += answer_content + "```"
         await message.channel.send(return_message)
 
 
 if __name__ == "__main__":
 
     client = QCClient()
-    client.run("NjkxNzIzMDUzMTMwMDU1Nzkx.XnkvXg.hSNLP5eCvVvD8pVOP9sO0dbHTVc")
+    client.run("API TOKEN HERE")
