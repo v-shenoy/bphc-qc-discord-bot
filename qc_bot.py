@@ -272,24 +272,24 @@ class QCClient(discord.Client):
         return_message = "```Help for BPHC Quiz Club Bot.\n\n"
         return_message += "Here's a list of commands -\n\n"
         return_message += "General commands -\n\n"
-        return_message += "\tqc!help - get a list of commands\n\n"
-        return_message += "\tqc!start_quiz quiz_name - start a quiz with given name with you as QM\n\n"
-        return_message += "\tqc!join nick - join quiz with given nick as your team-name\n\n"
-        return_message += "\tqc!list_participants - view a list of participants\n\n"
-        return_message += "\tqc!scoreboard - view the current scoreboard\n\n"
-        return_message += "\tqc!pass - pass your direct to the next team\n\n"
-        return_message += "\tqc!remind - remind the current participant to answer\n\n"
-        return_message += "\tqc!pounce answer - DM the pounce answer to BOT (not on channel)\n\n"
+        return_message += "\t`qc!help` - get a list of commands\n\n"
+        return_message += "\t`qc!start_quiz quiz_name` - start a quiz with given name with you as QM\n\n"
+        return_message += "\t`qc!join nick` - join quiz with given nick as your team-name\n\n"
+        return_message += "\t`qc!list_participants` - view a list of participants\n\n"
+        return_message += "\t`qc!scoreboard` - view the current scoreboard\n\n"
+        return_message += "\t`qc!pass` - pass your direct to the next team\n\n"
+        return_message += "\t`qc!remind` - remind the current participant to answer\n\n"
+        return_message += "\t`qc!pounce answer` - DM the pounce answer to BOT (not on channel)\n\n"
         return_message += "QM Only commands - \n\n"
-        return_message += "\tqc!end_quiz - end the quiz\n\n"
-        return_message += "\tqc!start_joining - start joining period for quiz participants\n\n"
-        return_message += "\tqc!end_joining - end joining period for quiz participants\n\n"
-        return_message += "\tqc!pounce_round dir - new pounce round in given direction\n\n"
-        return_message += "\tqc!next_question direct_team - give next question to direct team\n\n"
-        return_message += "\tqc!start_pouncing - start pouncing period\n\n"
-        return_message += "\tqc!end_pouncing - end pouncing period\n\n"
-        return_message += "\tqc!bounce - bounce the direct to next team\n\n"
-        return_message += "\tqc!score [participant1 participant2 ...] points - to add scores\n\n"
+        return_message += "\t`qc!end_quiz` - end the quiz\n\n"
+        return_message += "\t`qc!start_joining` - start joining period for quiz participants\n\n"
+        return_message += "\t`qc!end_joining` - end joining period for quiz participants\n\n"
+        return_message += "\t`qc!pounce_round dir` - new pounce round in given direction\n\n"
+        return_message += "\t`qc!next_question direct_team` - give next question to direct team\n\n"
+        return_message += "\t`qc!start_pouncing` - start pouncing period\n\n"
+        return_message += "\t`qc!end_pouncing` - end pouncing period\n\n"
+        return_message += "\t`qc!bounce` - bounce the direct to next team\n\n"
+        return_message += "\t`qc!score [participant1 participant2 ...] points` - to add scores\n\n"
         return_message += "```"
 
         await message.channel.send(return_message)
@@ -593,4 +593,4 @@ class QCClient(discord.Client):
 if __name__ == "__main__":
 
     client = QCClient()
-    client.run("API TOKEN HERE")
+    client.run("NjkxNzIzMDUzMTMwMDU1Nzkx.XnuJcA.WZGsdA0o1caNuZ1hfuun_GRqo9M")
