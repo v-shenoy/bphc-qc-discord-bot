@@ -6,6 +6,10 @@ from discord.ext.commands import Bot
 from discord import DMChannel
 
 
+# TODO
+# Automate quiz using .txt file.
+# Automate quiz from slideshare using SlideShare API (if possible) use reacts
+# to move slides
 # Constants
 prefix = "qc!"
 swears = [
@@ -156,11 +160,14 @@ class QuizCommands:
         "usage": "bounce",
         "desc": "bounce the question to the next team"}
     command_score = {
-        "usage": "score participant1 participant2... points",
+        "usage": "score points participant1 participant2...",
         "desc": "give scores to the participants"}
     command_bounce_type = {
         "usage": "bounce_type type",
         "desc": "set bounce type bangalore (default) or normal"}
+    command_kick = {
+        "usage": "kick team_num1 team_num2...",
+        "desc": "kick participants from the quiz"}
 
 
 class QCBot(Bot):
@@ -171,6 +178,8 @@ class QCBot(Bot):
         preix (str): prefix for the commands
         quiz_ongoing (bool): indicates whether a quiz is going on currently
         quiz_name (str): name of the quiz going on currently
+        quiz_channel (discord.abc.GuildChannel): Channel on which the quiz is
+            happening
         quizmaster (discord.user.User): User object of the person that is
             currently the quizmaster
         quizmaster_channel (discord.DMChannel): DMChannel of the current
@@ -187,6 +196,7 @@ class QCBot(Bot):
             question as direct
         curr_participant (int): no. of the participant currently supposed
             to answer
+        next_direct (int): keeps track of who gets the next direct
         pounce_direction (str): CW or ACW represnging clockwise or
             anti-clockwise
         pounces ([Str]): list of pounces for the current question
@@ -204,6 +214,7 @@ class QCBot(Bot):
         self.prefix = prefix
         self.quiz_ongoing = None
         self.quiz_name = None
+        self.quiz_channel = None
         self.quizmaster = None
         self.quizmaster_channel = None
         self.question_ongoing = None
@@ -214,6 +225,7 @@ class QCBot(Bot):
         self.joining_allowed = None
         self.direct_participant = None
         self.curr_participant = None
+        self.next_direct = None
         self.pounce_direction = None
         self.pounces = None
         self.pounced = None
@@ -310,6 +322,9 @@ async def command_help(ctx, *args):
     reply += (
         "\t" + QuizCommands.command_bounce_type["usage"] + " -\n\t\t" +
         QuizCommands.command_bounce_type["desc"] + "\n")
+    reply += (
+        "\t" + QuizCommands.command_kick["usage"] + " -\n\t\t" +
+        QuizCommands.command_kick["desc"] + "\n")
     reply += "```"
 
     await ctx.send(reply)
@@ -327,6 +342,7 @@ async def start_quiz(ctx, *, quiz_name):
 
     bot.quiz_ongoing = True
     bot.quiz_name = quiz_name
+    bot.quiz_channel = ctx.message.channel
     bot.quizmaster = ctx.author
     bot.quizmaster_channel = await bot.quizmaster.create_dm()
     bot.question_ongoing = False
@@ -336,6 +352,7 @@ async def start_quiz(ctx, *, quiz_name):
     bot.joining_allowed = False
     bot.direct_participant = False
     bot.curr_participant = None
+    bot.next_direct = 0
     bot.pounce_direction = "CW"
     bot.pounces = None
     bot.pounced = None
@@ -348,17 +365,25 @@ async def start_quiz(ctx, *, quiz_name):
 
 
 @bot.command(name="join")
-async def join(ctx, nick, *args):
-    # if ctx.author == bot.quizmaster:
-    #     reply = await create_error_message(
-    #         "QM cannot join the quiz",
-    #         bot.swearing)
-    #     await ctx.send(reply)
-    #     return
+async def join(ctx, *, nick):
+    if ctx.author == bot.quizmaster:
+        reply = await create_error_message(
+            "QM cannot join the quiz",
+            bot.swearing)
+        await ctx.send(reply)
+        return
 
     if not bot.quiz_ongoing:
         reply = await create_error_message(
             "There's no ongoing quiz",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if not bot.joining_allowed:
+        reply = await create_error_message(
+            "Joining is forbidden",
             bot.swearing
         )
         await ctx.send(reply)
@@ -554,13 +579,13 @@ async def pounce(ctx, *, answer):
         await ctx.send(reply)
         return
 
-    # if not bot.question_ongoing:
-    #     reply = await create_error_message(
-    #         "There's no ongoing question",
-    #         bot.swearing
-    #     )
-    #     await ctx.send(reply)
-    #     return
+    if not bot.question_ongoing:
+        reply = await create_error_message(
+            "There's no ongoing question",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
 
     idt = bot.participating.get(str(ctx.author))
     if idt is None:
@@ -597,7 +622,7 @@ async def pounce(ctx, *, answer):
 
     bot.pounced[str(ctx.author)] = True
     pounce_answer = await create_error_message(
-        f"[Number. {idt + 1}] -  {answer}",
+        f"{ctx.author} [Number. {idt + 1}] -  {answer}",
         False
     )
 
@@ -610,6 +635,13 @@ async def pounce(ctx, *, answer):
     )
 
     await ctx.send(reply)
+
+    reply = await create_error_message(
+        f"{ctx.author} [Number. {idt + 1}] pounced for this question",
+        False
+    )
+
+    await bot.quiz_channel.send(reply)
 
 
 @bot.command(name="swearing")
@@ -630,19 +662,20 @@ async def swearing(ctx, mode, *args):
     await ctx.send(reply)
 
 
+# QM Commands
 @bot.command(name="endQuiz")
 async def end_quiz(ctx, *args):
-    if ctx.author != bot.quizmaster:
+    if not bot.quiz_ongoing:
         reply = await create_error_message(
-            "You are not the QM",
+            "There's no ongoing quiz",
             bot.swearing
         )
         await ctx.send(reply)
         return
 
-    if not bot.quiz_ongoing:
+    if ctx.author != bot.quizmaster:
         reply = await create_error_message(
-            "There's no ongoing quiz",
+            "You are not the QM",
             bot.swearing
         )
         await ctx.send(reply)
@@ -674,8 +707,16 @@ async def end_quiz(ctx, *args):
     await ctx.send(reply)
 
 
-@bot.command(name="bounce")
-async def bounce(ctx, *args):
+@bot.command(name="startJoining")
+async def start_joining(ctx, *args):
+    if not bot.quiz_ongoing:
+        reply = await create_error_message(
+            "There's no ongoing quiz",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
     if ctx.author != bot.quizmaster:
         reply = await create_error_message(
             "You are not the QM",
@@ -684,9 +725,243 @@ async def bounce(ctx, *args):
         await ctx.send(reply)
         return
 
+    if bot.joining_allowed:
+        reply = await create_error_message(
+            "Joining is already allowed",
+            bot.swearing
+        )
+
+    bot.joining_allowed = True
+    reply = await create_error_message(
+        f"Joining period for {bot.quiz_name} has begun.\n\n"
+        + "Type 'qc!join nick' to join the quiz.",
+        False
+    )
+
+    await ctx.send(reply)
+
+
+@bot.command(name="endJoining")
+async def endJoining(ctx, *args):
     if not bot.quiz_ongoing:
         reply = await create_error_message(
             "There's no ongoing quiz",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if ctx.author != bot.quizmaster:
+        reply = await create_error_message(
+            "You are not the QM",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if not bot.joining_allowed:
+        reply = await create_error_message(
+            "Joining is already forbidden",
+            bot.swearing
+        )
+
+    bot.joining_allowed = False
+    reply = await create_error_message(
+        f"Joining period for {bot.quiz_name} has ended",
+        False
+    )
+
+    await ctx.send(reply)
+
+
+@bot.command(name="pounceRound")
+async def pounce_round(ctx, direction="CW", *args):
+    if not bot.quiz_ongoing:
+        reply = await create_error_message(
+            "There's no ongoing quiz",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if ctx.author != bot.quizmaster:
+        reply = await create_error_message(
+            "You are not the QM",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    reply = None
+    if direction == "CW":
+        reply = await create_error_message(
+            "Clockwise pounce round beginning",
+            False
+        )
+        bot.direction = direction
+        bot.next_direct = 0
+    elif direction != "ACW":
+        reply = await create_error_message(
+            "Anti-Clockwise pounce round beginning",
+            False
+        )
+        bot.direction = direction
+        bot.next_direct = bot.no_of_participants - 1
+    else:
+        reply = await create_error_message(
+            "Unknown pounce direction",
+            bot.swearing
+        )
+
+    await ctx.send(reply)
+
+
+@bot.command(name="direct")
+async def direct(ctx, team_num=None, *args):
+    if not bot.quiz_ongoing:
+        reply = await create_error_message(
+            "There's no ongoing quiz",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if ctx.author != bot.quizmaster:
+        reply = await create_error_message(
+            "You are not the QM",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    try:
+        team_num = int(team_num) - 1
+    except ValueError:
+        team_num = bot.next_direct
+
+    bot.question_ongoing = True
+    bot.direct_participant = team_num
+    bot.curr_participant = team_num
+
+    participant = bot.participants[bot.curr_participant]
+
+    reply = f"{participant.member.mention}"
+    reply += await create_error_message(
+        f"[Number. {participant.id + 1}] -  It's your fucking turn",
+        bot.swearing
+    )
+
+    await ctx.send(reply)
+
+
+@bot.command(name="startPounce")
+async def start_pounce(ctx, *args):
+    if not bot.quiz_ongoing:
+        reply = await create_error_message(
+            "There's no ongoing quiz",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if ctx.author != bot.quizmaster:
+        reply = await create_error_message(
+            "You are not the QM",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if not bot.question_ongoing:
+        reply = await create_error_message(
+            "There's no ongoing question",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if bot.pouncing_allowed:
+        reply = await create_error_message(
+            "Pounce is already open",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    bot.pouncing_allowed = True
+    bot.pounces = []
+    bot.pounced = {}
+
+    reply = await create_error_message(
+        "Pouncing for this question is now allowed.\n\n"
+        + "DM your answers to the bot as 'qc!pounce answer'",
+        False
+    )
+
+    await ctx.send(reply)
+
+
+@bot.command(name="endPounce")
+async def endPounce(ctx, *args):
+    if not bot.quiz_ongoing:
+        reply = await create_error_message(
+            "There's no ongoing quiz",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if ctx.author != bot.quizmaster:
+        reply = await create_error_message(
+            "You are not the QM",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if not bot.question_ongoing:
+        reply = await create_error_message(
+            "There's no ongoing question",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if not bot.pouncing_allowed:
+        reply = await create_error_message(
+            "Pounce is already closed",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    bot.pouncing_allowed = False
+    reply = "```fix\nPounces for this question - \n\n```"
+    reply += "\n\n".join(bot.pounces)
+
+    await bot.quizmaster_channel.send(reply)
+
+    reply = await create_error_message(
+        "Pouncing for this round is closed",
+        False
+    )
+
+    await ctx.send(reply)
+
+
+@bot.command(name="bounce")
+async def bounce(ctx, *args):
+    if not bot.quiz_ongoing:
+        reply = await create_error_message(
+            "There's no ongoing quiz",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if ctx.author != bot.quizmaster:
+        reply = await create_error_message(
+            "You are not the QM",
             bot.swearing
         )
         await ctx.send(reply)
@@ -718,8 +993,16 @@ async def bounce(ctx, *args):
     await pounce_and_bounce_util(ctx, reply)
 
 
-@bot.command(name="bounceType")
-async def bounce_type(ctx, bounce_type):
+@bot.command(name="score")
+async def score(ctx, points, *participants):
+    if not bot.quiz_ongoing:
+        reply = await create_error_message(
+            "There's no ongoing quiz",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
     if ctx.author != bot.quizmaster:
         reply = await create_error_message(
             "You are not the QM",
@@ -728,9 +1011,47 @@ async def bounce_type(ctx, bounce_type):
         await ctx.send(reply)
         return
 
+    try:
+        points = int(points)
+    except Exception:
+        reply = await create_error_message(
+            "Points are supposed to be integers",
+            False
+        )
+        await ctx.send(reply)
+
+    reply = "```fix\n"
+    for participant in participants:
+        try:
+            team_num = int(participant) - 1
+            reply += "\t{}'s score went from {} to {}.\n".format(
+                bot.participants[team_num].member,
+                bot.participants[team_num].score,
+                bot.participants[team_num].score + points,
+            )
+            bot.participants[team_num].score += points
+            bot.next_direct = team_num
+
+        except (ValueError, IndexError):
+            pass
+
+    reply += "```"
+    await ctx.send(reply)
+
+
+@bot.command(name="bounceType")
+async def bounce_type(ctx, bounce_type):
     if not bot.quiz_ongoing:
         reply = await create_error_message(
             "There's no ongoing quiz",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if ctx.author != bot.quizmaster:
+        reply = await create_error_message(
+            "You are not the QM",
             bot.swearing
         )
         await ctx.send(reply)
@@ -750,7 +1071,43 @@ async def bounce_type(ctx, bounce_type):
         False
     )
     await ctx.send(reply)
-    return
+
+
+@bot.command(name="kick")
+async def kick(ctx, *participants):
+    if not bot.quiz_ongoing:
+        reply = await create_error_message(
+            "There's no ongoing quiz",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if ctx.author != bot.quizmaster:
+        reply = await create_error_message(
+            "You are not the QM",
+            bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    reply = "```fix\n"
+    for num in participants:
+        try:
+            team_num = int(num) - 1
+            participant = bot.participants[team_num]
+            reply += "{} [Number. {}] has been kicked from the quiz".format(
+                participant.member,
+                participant.id + 1,
+            )
+            reply += ".\n"
+            del bot.participants[team_num]
+        except (ValueError, IndexError):
+            pass
+
+    reply += "```"
+
+    await ctx.send(reply)
 
 
 @bot.event
@@ -766,4 +1123,6 @@ async def on_command_error(ctx, error):
 
 
 if __name__ == "__main__":
+    # This is the old API token for my bot.
+    # Replace this with your generated token before running.
     bot.run("NjkxNzIzMDUzMTMwMDU1Nzkx.XnueVA.SbPT7fZSfyKMXHuUZyGFUMRNbPk")
