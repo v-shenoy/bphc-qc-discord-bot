@@ -1,15 +1,17 @@
 import random
 import sys
+import io
 
+import discord
 from discord.ext import commands
 from discord.ext.commands import Bot
 from discord import DMChannel
-
+import emojis
+from pdf2image import convert_from_bytes
 
 # TODO
-# Automate quiz using .txt file.
-# Automate quiz from slideshare using SlideShare API (if possible) use reacts
-# to move slides
+# Allow quizes on multiple channels
+
 # Constants
 prefix = "qc!"
 swears = [
@@ -63,10 +65,7 @@ swears = [
 ]
 
 
-# Also used for creating Yellow-text using Fix syntax
-# highlighting in some places instead of manual string
-# concatenation
-async def create_error_message(message, swearing, plural=False):
+async def create_colored_message(message, swearing, plural=False):
     error = f"```fix\n{message}"
     if swearing:
         error += ", " + random.choice(swears)
@@ -75,6 +74,47 @@ async def create_error_message(message, swearing, plural=False):
     error += ".```"
 
     return error
+
+
+async def send_image(ctx, bot, direction="Forward"):
+    if bot.curr_slide == -1:
+        reply = await create_colored_message(
+            "Reached the beginning of the quiz file",
+            swearing=False
+        )
+        await ctx.send(reply)
+        return
+
+    if bot.curr_slide == len(bot.quiz_file):
+        reply = await create_colored_message(
+            "Reached the end of the quiz file",
+            swearing=False
+        )
+        await ctx.send(reply)
+        return
+
+    with io.BytesIO() as image_binary:
+        image = bot.quiz_file[bot.curr_slide]
+        image.save(image_binary, "JPEG")
+        image_binary.seek(0)
+
+        reply = await create_colored_message(
+            f"Slide {bot.curr_slide + 1}",
+            swearing=False
+        )
+        await ctx.send(reply)
+
+        message = await ctx.send(
+            file=discord.File(
+                fp=image_binary,
+                filename=f"Slide_{bot.curr_slide}.jpg"
+            )
+        )
+
+        await message.add_reaction(emojis.encode(":arrow_backward:"))
+        await message.add_reaction(emojis.encode(":arrow_forward:"))
+
+        return message
 
 
 # Class Definitions
@@ -109,7 +149,7 @@ class QuizCommands:
         "usage": "help",
         "desc": "display the help menu"}
     command_start_quiz = {
-        "usage": "start_quiz quiz_name",
+        "usage": "startQuiz quiz_name",
         "desc": "become the QM, and start a quiz with given name"}
     command_join = {
         "usage": "join nick",
@@ -130,31 +170,35 @@ class QuizCommands:
         "usage": "pounce answer",
         "desc": "pounce on the current question with your answer on DM " +
                 "to the bot"}
+    command_clues = {
+        "usage": "clues",
+        "desc": "set up a poll for checking if people want clues"
+    }
     command_swearing = {
         "usage": "swearing mode",
         "desc": "set swearing mode on (default) or off"}
 
     # QM Only Commands
     command_end_quiz = {
-        "usage": "end_quiz",
+        "usage": "endQuiz",
         "desc": "end the quiz"}
     command_start_joining = {
-        "usage": "start_joining",
+        "usage": "startJoining",
         "desc": "start the joining period for the quiz"}
     command_end_joining = {
-        "usage": "end_joining",
+        "usage": "endJoining",
         "desc": "end the joining period for the quiz"}
     command_pounce_round = {
-        "usage": "pounce_round direction",
-        "desc": "start a pounce round in given direction (CW or ACW)"}
+        "usage": "pounceRound direction",
+        "desc": "start a pounce round in given direction, CW (default) or ACW"}
     command_direct = {
         "usage": "direct [team_number]",
         "desc": "give the next question with a chosen direct team (optional)"}
     command_start_pounce = {
-        "usage": "start_pounce",
+        "usage": "startPounce",
         "desc": "start pouncing period for the current question"}
     command_end_pounce = {
-        "usage": "end_pounce",
+        "usage": "endPounce",
         "desc": "end pouncing period for the current question"}
     command_bounce = {
         "usage": "bounce",
@@ -163,11 +207,15 @@ class QuizCommands:
         "usage": "score points participant1 participant2...",
         "desc": "give scores to the participants"}
     command_bounce_type = {
-        "usage": "bounce_type type",
+        "usage": "bounceType type",
         "desc": "set bounce type bangalore (default) or normal"}
     command_kick = {
         "usage": "kick team_num1 team_num2...",
         "desc": "kick participants from the quiz"}
+    command_quiz_file = {
+        "usage": "quizFile [along with an attached pdf file]",
+        "desc": "send the bot the pdf file to be used for the quiz"
+    }
 
 
 class QCBot(Bot):
@@ -205,6 +253,9 @@ class QCBot(Bot):
         bounce_type (str): indicates type of bounce, bangalore (default)
             or normal
         swearing (bool): indicates whether the bot should swear or not
+        quiz_file (TODO - add class): list of images in the quiz
+        curr_slide (int): index into quiz_file
+        slide_message (discord.)
     """
 
     def __init__(self):
@@ -231,10 +282,14 @@ class QCBot(Bot):
         self.pounced = None
         self.bounce_type = "bangalore"
         self.swearing = True
+        self.quiz_file = None
+        self.curr_slide = None
+        self.slide_message = None
 
     def reset(self):
         self.quiz_ongoing = None
         self.quiz_name = None
+        self.quiz_channel = None
         self.quizmaster = None
         self.quizmaster_channel = None
         self.question_ongoing = None
@@ -245,11 +300,15 @@ class QCBot(Bot):
         self.joining_allowed = None
         self.direct_participant = None
         self.curr_participant = None
+        self.next_direct = None
         self.pounce_direction = None
         self.pounces = None
         self.pounced = None
         self.bounce_type = "bangalore"
         self.swearing = True
+        self.quiz_file = None
+        self.curr_slide = None
+        self.slide_message = None
 
 
 bot = QCBot()
@@ -259,7 +318,7 @@ bot.remove_command(name="help")
 # Bot Commands
 # General Commands
 @bot.command(name="help")
-async def command_help(ctx, *args):
+async def command_help(ctx):
     reply = "```fix\n"
     reply += "Help for the Quiz Club Bot.\n"
     reply += f"The prefix for this bot is - {bot.prefix}.\n\n"
@@ -333,9 +392,9 @@ async def command_help(ctx, *args):
 @bot.command(name="startQuiz")
 async def start_quiz(ctx, *, quiz_name):
     if bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's already a quiz going on",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
@@ -367,32 +426,33 @@ async def start_quiz(ctx, *, quiz_name):
 @bot.command(name="join")
 async def join(ctx, *, nick):
     if ctx.author == bot.quizmaster:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "QM cannot join the quiz",
-            bot.swearing)
+            swearing=bot.swearing
+        )
         await ctx.send(reply)
         return
 
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if not bot.joining_allowed:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "Joining is forbidden",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
-    if bot.participating.get(str(ctx.author)) is not None:
-        reply = await create_error_message(
+    if bot.participating.get(ctx.author.id) is not None:
+        reply = await create_colored_message(
             "You are already participating",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
@@ -401,7 +461,7 @@ async def join(ctx, *, nick):
         bot.no_of_participants, ctx.author, nick)
 
     bot.participants.append(participant)
-    bot.participating[str(ctx.author)] = bot.no_of_participants
+    bot.participating[ctx.author.id] = bot.no_of_participants
     bot.no_of_participants += 1
 
     reply = "```fix\n"
@@ -414,11 +474,11 @@ async def join(ctx, *, nick):
 
 
 @bot.command(name="list")
-async def list_participants(ctx, *args):
+async def list_participants(ctx):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
@@ -438,7 +498,7 @@ async def list_participants(ctx, *args):
 
 
 @bot.command(name="scoreboard")
-async def scoreboard(ctx, *args):
+async def scoreboard(ctx):
     sorted_list = sorted(
         bot.participants, key=lambda item: item.score, reverse=True)
 
@@ -476,17 +536,17 @@ async def pounce_and_bounce_util(ctx, reply):
         if not bot.pounced.get(str(participant.member)):
             break
         else:
-            reply += await create_error_message(
+            reply += await create_colored_message(
                 f"{participant.member} [Number. {participant.id + 1}] "
                 + "has pounced. moving on.\n",
-                False
+                swearing=False
             )
 
     if bot.curr_participant == bot.direct_participant:
-        reply += await create_error_message(
-                "None of you got it",
-                bot.swearing,
-                True
+        reply += await create_colored_message(
+            "None of you got it",
+            bot.swearing,
+            swearing=True
         )
 
         if bot.bounce_type == "bangalore":
@@ -496,35 +556,35 @@ async def pounce_and_bounce_util(ctx, reply):
         return
 
     reply = f"{participant.member.mention}"
-    reply += await create_error_message(
+    reply += await create_colored_message(
         f"[Number. {participant.id + 1}] -  It's your turn",
-        bot.swearing
+        swearing=bot.swearing
     )
 
     await ctx.send(reply)
 
 
 @bot.command(name="pass")
-async def pass_question(ctx, *args):
+async def pass_question(ctx):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if not bot.question_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing question",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     participant = bot.participants[bot.curr_participant]
     if ctx.author != participant.member:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "It's not your turn",
             bot.swearing
         )
@@ -532,28 +592,28 @@ async def pass_question(ctx, *args):
         return
 
     reply = ctx.author.mention
-    reply += await create_error_message(
+    reply += await create_colored_message(
         "Your turn is being passed over",
-        False
+        swearing=False
     )
 
     await pounce_and_bounce_util(ctx, reply)
 
 
 @bot.command(name="remind")
-async def remind(ctx, *args):
+async def remind(ctx):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if not bot.question_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing question",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
@@ -561,9 +621,9 @@ async def remind(ctx, *args):
     participant = bot.participants[bot.curr_participant]
 
     reply = f"{participant.member.mention}"
-    reply += await create_error_message(
+    reply += await create_colored_message(
         f"[Number. {participant.id + 1}] -  It's your fucking turn",
-        bot.swearing
+        swearing=bot.swearing
     )
 
     await ctx.send(reply)
@@ -572,88 +632,113 @@ async def remind(ctx, *args):
 @bot.command(name="pounce")
 async def pounce(ctx, *, answer):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if not bot.question_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing question",
-            bot.swearing
-        )
-        await ctx.send(reply)
-        return
-
-    idt = bot.participating.get(str(ctx.author))
-    if idt is None:
-        reply = await create_error_message(
-            "You are not participating",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if not isinstance(ctx.message.channel, DMChannel):
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "Pounce on DM",
-            bot.swearing)
+            swearing=bot.swearing)
+        await ctx.send(reply)
+        return
+
+    idt = bot.participating.get(ctx.author.id)
+    if idt is None:
+        reply = await create_colored_message(
+            "You are not participating",
+            swearing=bot.swearing
+        )
         await ctx.send(reply)
         return
 
     participant = bot.participants[bot.curr_participant]
     if ctx.author == participant.member:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "It's your direct",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
-    if bot.pounced.get(str(ctx.author)):
-        reply = await create_error_message(
+    if bot.pounced.get(ctx.author.id):
+        reply = await create_colored_message(
             "You already pounced",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
-    bot.pounced[str(ctx.author)] = True
-    pounce_answer = await create_error_message(
+    bot.pounced[ctx.author.id] = True
+    pounce_answer = await create_colored_message(
         f"{ctx.author} [Number. {idt + 1}] -  {answer}",
-        False
+        swearing=False
     )
 
     bot.pounces.append(pounce_answer)
 
-    reply = await create_error_message(
+    reply = await create_colored_message(
         "You have pounced for this question with the answer - \n\n"
         + answer,
-        False
+        swearing=False
     )
 
     await ctx.send(reply)
 
-    reply = await create_error_message(
+    reply = await create_colored_message(
         f"{ctx.author} [Number. {idt + 1}] pounced for this question",
-        False
+        swearing=False
     )
 
     await bot.quiz_channel.send(reply)
 
 
+@bot.command(name="clues")
+async def clues(ctx):
+    if not bot.quiz_ongoing:
+        reply = await create_colored_message(
+            "There's no ongoing quiz",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if not bot.question_ongoing:
+        reply = await create_colored_message(
+            "There's no ongoing question",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    reply = "```fix\nWant clues?```"
+
+    message = await ctx.send(reply)
+    await message.add_reaction(emojis.encode(":thumbsup:"))
+    await message.add_reaction(emojis.encode(":thumbsdown:"))
+
+
 @bot.command(name="swearing")
-async def swearing(ctx, mode, *args):
+async def swearing(ctx, mode):
     if mode == "on":
         bot.swearing = True
     elif mode == "off":
         bot.swearing = False
     else:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "Not a valid mode",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
@@ -664,19 +749,19 @@ async def swearing(ctx, mode, *args):
 
 # QM Commands
 @bot.command(name="endQuiz")
-async def end_quiz(ctx, *args):
+async def end_quiz(ctx):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if ctx.author != bot.quizmaster:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "You are not the QM",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
@@ -708,128 +793,128 @@ async def end_quiz(ctx, *args):
 
 
 @bot.command(name="startJoining")
-async def start_joining(ctx, *args):
+async def start_joining(ctx):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if ctx.author != bot.quizmaster:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "You are not the QM",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if bot.joining_allowed:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "Joining is already allowed",
-            bot.swearing
+            swearing=bot.swearing
         )
 
     bot.joining_allowed = True
-    reply = await create_error_message(
+    reply = await create_colored_message(
         f"Joining period for {bot.quiz_name} has begun.\n\n"
         + "Type 'qc!join nick' to join the quiz.",
-        False
+        swearing=False
     )
 
     await ctx.send(reply)
 
 
 @bot.command(name="endJoining")
-async def endJoining(ctx, *args):
+async def endJoining(ctx):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if ctx.author != bot.quizmaster:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "You are not the QM",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if not bot.joining_allowed:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "Joining is already forbidden",
-            bot.swearing
+            swearing=bot.swearing
         )
 
     bot.joining_allowed = False
-    reply = await create_error_message(
+    reply = await create_colored_message(
         f"Joining period for {bot.quiz_name} has ended",
-        False
+        swearing=False
     )
 
     await ctx.send(reply)
 
 
 @bot.command(name="pounceRound")
-async def pounce_round(ctx, direction="CW", *args):
+async def pounce_round(ctx, direction="CW"):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if ctx.author != bot.quizmaster:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "You are not the QM",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     reply = None
     if direction == "CW":
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "Clockwise pounce round beginning",
-            False
+            swearing=False
         )
         bot.direction = direction
         bot.next_direct = 0
     elif direction != "ACW":
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "Anti-Clockwise pounce round beginning",
-            False
+            swearing=False
         )
         bot.direction = direction
         bot.next_direct = bot.no_of_participants - 1
     else:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "Unknown pounce direction",
-            bot.swearing
+            swearing=bot.swearing
         )
 
     await ctx.send(reply)
 
 
 @bot.command(name="direct")
-async def direct(ctx, team_num=None, *args):
+async def direct(ctx, team_num=None):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if ctx.author != bot.quizmaster:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "You are not the QM",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
@@ -839,6 +924,10 @@ async def direct(ctx, team_num=None, *args):
     except ValueError:
         team_num = bot.next_direct
 
+    if bot.quiz_file is not None and len(bot.quiz_file) != 0:
+        bot.curr_slide += 1
+        bot.slide_message = await send_image(ctx, bot)
+
     bot.question_ongoing = True
     bot.direct_participant = team_num
     bot.curr_participant = team_num
@@ -846,44 +935,44 @@ async def direct(ctx, team_num=None, *args):
     participant = bot.participants[bot.curr_participant]
 
     reply = f"{participant.member.mention}"
-    reply += await create_error_message(
-        f"[Number. {participant.id + 1}] -  It's your fucking turn",
-        bot.swearing
+    reply += await create_colored_message(
+        f"[Number. {participant.id + 1}] -  It's your turn",
+        swearing=False
     )
 
     await ctx.send(reply)
 
 
 @bot.command(name="startPounce")
-async def start_pounce(ctx, *args):
+async def start_pounce(ctx):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if ctx.author != bot.quizmaster:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "You are not the QM",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if not bot.question_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing question",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if bot.pouncing_allowed:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "Pounce is already open",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
@@ -892,45 +981,45 @@ async def start_pounce(ctx, *args):
     bot.pounces = []
     bot.pounced = {}
 
-    reply = await create_error_message(
+    reply = await create_colored_message(
         "Pouncing for this question is now allowed.\n\n"
         + "DM your answers to the bot as 'qc!pounce answer'",
-        False
+        swearing=False
     )
 
     await ctx.send(reply)
 
 
 @bot.command(name="endPounce")
-async def endPounce(ctx, *args):
+async def endPounce(ctx):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if ctx.author != bot.quizmaster:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "You are not the QM",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if not bot.question_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing question",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if not bot.pouncing_allowed:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "Pounce is already closed",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
@@ -941,53 +1030,44 @@ async def endPounce(ctx, *args):
 
     await bot.quizmaster_channel.send(reply)
 
-    reply = await create_error_message(
+    reply = await create_colored_message(
         "Pouncing for this round is closed",
-        False
+        swearing=False
     )
 
     await ctx.send(reply)
 
 
 @bot.command(name="bounce")
-async def bounce(ctx, *args):
+async def bounce(ctx):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if ctx.author != bot.quizmaster:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "You are not the QM",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if not bot.question_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing question",
-            bot.swearing
-        )
-        await ctx.send(reply)
-        return
-
-    participant = bot.participants[bot.curr_participant]
-    if ctx.author != participant.member:
-        reply = await create_error_message(
-            "It's not your turn",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     reply = ctx.author.mention
-    reply += await create_error_message(
+    reply += await create_colored_message(
         "Question is begin bounced over",
-        False
+        swearing=False
     )
 
     await pounce_and_bounce_util(ctx, reply)
@@ -996,17 +1076,17 @@ async def bounce(ctx, *args):
 @bot.command(name="score")
 async def score(ctx, points, *participants):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if ctx.author != bot.quizmaster:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "You are not the QM",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
@@ -1014,9 +1094,9 @@ async def score(ctx, points, *participants):
     try:
         points = int(points)
     except Exception:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "Points are supposed to be integers",
-            False
+            swearing=False
         )
         await ctx.send(reply)
 
@@ -1042,33 +1122,33 @@ async def score(ctx, points, *participants):
 @bot.command(name="bounceType")
 async def bounce_type(ctx, bounce_type):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if ctx.author != bot.quizmaster:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "You are not the QM",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if bounce_type != "bangalore" and bounce_type != "normal":
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "Unknown bounce type",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     bot.bounce_type = bounce_type
-    reply = await create_error_message(
+    reply = await create_colored_message(
         f"Bounce type changed to {bounce_type}",
-        False
+        swearing=False
     )
     await ctx.send(reply)
 
@@ -1076,17 +1156,17 @@ async def bounce_type(ctx, bounce_type):
 @bot.command(name="kick")
 async def kick(ctx, *participants):
     if not bot.quiz_ongoing:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "There's no ongoing quiz",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
     if ctx.author != bot.quizmaster:
-        reply = await create_error_message(
+        reply = await create_colored_message(
             "You are not the QM",
-            bot.swearing
+            swearing=bot.swearing
         )
         await ctx.send(reply)
         return
@@ -1110,13 +1190,97 @@ async def kick(ctx, *participants):
     await ctx.send(reply)
 
 
+@bot.command(name="quizFile")
+async def quiz_file(ctx):
+    if not bot.quiz_ongoing:
+        reply = await create_colored_message(
+            "There's no ongoing quiz",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if ctx.author != bot.quizmaster:
+        reply = await create_colored_message(
+            "You are not the QM",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if not isinstance(ctx.message.channel, DMChannel):
+        reply = await create_colored_message(
+            "Send file on DM",
+            swearing=bot.swearing)
+        await ctx.send(reply)
+        return
+
+    if not ctx.message.attachments:
+        reply = await create_colored_message(
+            "Coult not find file",
+            swearing=bot.swearing)
+        await ctx.send(reply)
+        return
+
+    images = []
+    for attachment in ctx.message.attachments:
+        attachment_bytes = await attachment.read()
+        images.extend(convert_from_bytes(attachment_bytes, fmt="JPEG"))
+
+    reply = await create_colored_message(
+        "Received the file",
+        swearing=False
+    )
+
+    bot.quiz_file = images
+    bot.curr_slide = -1
+
+    await ctx.send(reply)
+
+
+# Bot Events
+@bot.event
+async def on_ready():
+    for guild in bot.guilds:
+        if guild.system_channel is None:
+            pass
+
+        reply = await create_colored_message(
+            "Hey, I am up and running now",
+            swearing=False
+        )
+
+        await guild.system_channel.send(reply)
+
+
+@bot.event
+async def on_reaction_add(reaction, member):
+    if bot.slide_message is None:
+        return
+
+    if reaction.message.id != bot.slide_message.id:
+        return
+
+    if member != bot.quizmaster:
+        return
+
+    if reaction.emoji == emojis.encode(":arrow_forward:"):
+        bot.curr_slide += 1
+        bot.slide_message = await send_image(
+            reaction.message.channel, bot)
+    elif reaction.emoji == emojis.encode(":arrow_backward:"):
+        bot.curr_slide -= 1
+        bot.slide_message = await send_image(
+            reaction.message.channel, bot)
+
+
 @bot.event
 async def on_command_error(ctx, error):
     print(error, file=sys.stderr)
-    reply = await create_error_message(
+    reply = await create_colored_message(
         "I am not really sure what you tried to do there.\n\n"
         + "Try viewing help",
-        bot.swearing
+        swearing=bot.swearing
     )
 
     await ctx.send(reply)
@@ -1125,4 +1289,5 @@ async def on_command_error(ctx, error):
 if __name__ == "__main__":
     # This is the old API token for my bot.
     # Replace this with your generated token before running.
-    bot.run("NjkxNzIzMDUzMTMwMDU1Nzkx.XnueVA.SbPT7fZSfyKMXHuUZyGFUMRNbPk")
+    discord_api_key = ""
+    bot.run(discord_api_key)
