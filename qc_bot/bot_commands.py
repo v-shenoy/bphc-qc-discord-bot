@@ -1,391 +1,94 @@
-import random
-import sys
-import io
 
 import discord
-from discord.ext import commands
-from discord.ext.commands import Bot
-from discord import DMChannel
-import emojis
+
 from pdf2image import convert_from_bytes
+import emojis
 
-# TODO
-# Allow quizes on multiple channels
-
-# Constants
-prefix = "qc!"
-swears = [
-    "ya fool",
-    "ya ass",
-    "ya halfwit",
-    "ya nincompoop",
-    "ya dunce",
-    "ya dolt",
-    "ya ignoramus",
-    "ya cretin",
-    "ya imbecile",
-    "ya moron",
-    "ya simpleton",
-    "ya dope",
-    "ya ninny",
-    "ya chump",
-    "ya dimwit",
-    "ya dumbo",
-    "ya dum-dum",
-    "ya dumb-bell",
-    "ya loon",
-    "ya jackass",
-    "ya bonehead",
-    "ya fathead",
-    "ya numbskull",
-    "ya blockhead",
-    "ya knucklehead",
-    "ya thickhead",
-    "ya airhead",
-    "ya pinhead",
-    "ya birdbrain",
-    "ya jerk",
-    "ya donkey",
-    "ya noodle",
-    "ya twit",
-    "ya git",
-    "ya muppet",
-    "ya schmuck",
-    "ya dork",
-    "ya dingbat",
-    "ya wing-nut",
-    "ya knobhead",
-    "ya mofo",
-    "ya arse",
-    "chutiye",
-    "bhosdike",
-    "bhadwe",
-    "madarchod",
-    "behenchod"
-]
+from qc_bot.util import create_colored_message, send_slide
+from qc_bot.quiz import QuizCommand, Participant
+from qc_bot.qc_bot import bot
 
 
-async def create_colored_message(message, swearing, plural=False):
-    error = f"```fix\n{message}"
-    if swearing:
-        error += ", " + random.choice(swears)
-    if plural:
-        error += "s"
-    error += ".```"
-
-    return error
-
-
-async def send_image(ctx, bot, direction="Forward"):
-    if bot.curr_slide == -1:
-        reply = await create_colored_message(
-            "Reached the beginning of the quiz file",
-            swearing=False
-        )
-        await ctx.send(reply)
-        return
-
-    if bot.curr_slide == len(bot.quiz_file):
-        reply = await create_colored_message(
-            "Reached the end of the quiz file",
-            swearing=False
-        )
-        await ctx.send(reply)
-        return
-
-    with io.BytesIO() as image_binary:
-        image = bot.quiz_file[bot.curr_slide]
-        image.save(image_binary, "JPEG")
-        image_binary.seek(0)
-
-        reply = await create_colored_message(
-            f"Slide {bot.curr_slide + 1}",
-            swearing=False
-        )
-        await ctx.send(reply)
-
-        message = await ctx.send(
-            file=discord.File(
-                fp=image_binary,
-                filename=f"Slide_{bot.curr_slide}.jpg"
-            )
-        )
-
-        await message.add_reaction(emojis.encode(":arrow_backward:"))
-        await message.add_reaction(emojis.encode(":arrow_forward:"))
-
-        return message
-
-
-# Class Definitions
-class Participant:
-    """ Participant in the quiz.
-
-    Mostly a bag of data.
-
-    Attribute:
-        id (int): unique id number given the to participant
-        member (discord.user.User): object representing Discord member
-        nick (str): nick of the participant for the quiz
-        score (int): score of the participant for the quiz
-    """
-
-    def __init__(self, idt, member, nick, score=0):
-        self.id = idt
-        self.member = member
-        self.nick = nick
-        self.score = score
-
-
-class QuizCommands:
-    """ Class containing the list of commands that the bot offers.
-
-    Contains a dictionary mapping the name to the usage, and
-    help description.
-    """
-
-    # General Commands
-    command_help = {
-        "usage": "help",
-        "desc": "display the help menu"}
-    command_start_quiz = {
-        "usage": "startQuiz quiz_name",
-        "desc": "become the QM, and start a quiz with given name"}
-    command_join = {
-        "usage": "join nick",
-        "desc": "join the quiz with chosen nick"}
-    command_list = {
-        "usage": "list",
-        "desc": "view the members participating in the quiz"}
-    command_scoreboard = {
-        "usage": "scoreboard",
-        "desc": "view the scoreboard for the quiz"}
-    command_pass = {
-        "usage": "pass",
-        "desc": "pass your direct to the next participant"}
-    command_remind = {
-        "usage": "remind",
-        "desc": "remind the current participant to answer the question"}
-    command_pounce = {
-        "usage": "pounce answer",
-        "desc": "pounce on the current question with your answer on DM " +
-                "to the bot"}
-    command_clues = {
-        "usage": "clues",
-        "desc": "set up a poll for checking if people want clues"
-    }
-    command_swearing = {
-        "usage": "swearing mode",
-        "desc": "set swearing mode on (default) or off"}
-
-    # QM Only Commands
-    command_end_quiz = {
-        "usage": "endQuiz",
-        "desc": "end the quiz"}
-    command_start_joining = {
-        "usage": "startJoining",
-        "desc": "start the joining period for the quiz"}
-    command_end_joining = {
-        "usage": "endJoining",
-        "desc": "end the joining period for the quiz"}
-    command_pounce_round = {
-        "usage": "pounceRound direction",
-        "desc": "start a pounce round in given direction, CW (default) or ACW"}
-    command_direct = {
-        "usage": "direct [team_number]",
-        "desc": "give the next question with a chosen direct team (optional)"}
-    command_start_pounce = {
-        "usage": "startPounce",
-        "desc": "start pouncing period for the current question"}
-    command_end_pounce = {
-        "usage": "endPounce",
-        "desc": "end pouncing period for the current question"}
-    command_bounce = {
-        "usage": "bounce",
-        "desc": "bounce the question to the next team"}
-    command_score = {
-        "usage": "score points participant1 participant2...",
-        "desc": "give scores to the participants"}
-    command_bounce_type = {
-        "usage": "bounceType type",
-        "desc": "set bounce type bangalore (default) or normal"}
-    command_kick = {
-        "usage": "kick team_num1 team_num2...",
-        "desc": "kick participants from the quiz"}
-    command_quiz_file = {
-        "usage": "quizFile [along with an attached pdf file]",
-        "desc": "send the bot the pdf file to be used for the quiz"
-    }
-
-
-class QCBot(Bot):
-    """ QuizClub bot for helping run pounce-n-bounce quizzes on a Discord
-    server.
-
-    Attributes:
-        preix (str): prefix for the commands
-        quiz_ongoing (bool): indicates whether a quiz is going on currently
-        quiz_name (str): name of the quiz going on currently
-        quiz_channel (discord.abc.GuildChannel): Channel on which the quiz is
-            happening
-        quizmaster (discord.user.User): User object of the person that is
-            currently the quizmaster
-        quizmaster_channel (discord.DMChannel): DMChannel of the current
-            quizmaster
-        question_ongoing (bool): indicates whether a question is going on
-            currently
-        participants ([Participant]): list of participants
-        participating ({str: bool}): dictionary marking participating members
-        no_of_participants (int): number of participants in the quiz
-        pouncing_allowed (bool): indicates whether participants can pounce
-        joining_allowed (bool): indicates whether new members can join
-            the quiz
-        direct_participant (int): no. of the participant that got the
-            question as direct
-        curr_participant (int): no. of the participant currently supposed
-            to answer
-        next_direct (int): keeps track of who gets the next direct
-        pounce_direction (str): CW or ACW represnging clockwise or
-            anti-clockwise
-        pounces ([Str]): list of pounces for the current question
-        pounced ({str:}): dictionary indication which participants have
-            pounced
-        bounce_type (str): indicates type of bounce, bangalore (default)
-            or normal
-        swearing (bool): indicates whether the bot should swear or not
-        quiz_file (TODO - add class): list of images in the quiz
-        curr_slide (int): index into quiz_file
-        slide_message (discord.)
-    """
-
-    def __init__(self):
-        super(QCBot, self).__init__(
-            command_prefix=commands.when_mentioned_or(prefix))
-
-        self.prefix = prefix
-        self.quiz_ongoing = None
-        self.quiz_name = None
-        self.quiz_channel = None
-        self.quizmaster = None
-        self.quizmaster_channel = None
-        self.question_ongoing = None
-        self.participants = None
-        self.participating = None
-        self.no_of_participants = 0
-        self.pouncing_allowed = None
-        self.joining_allowed = None
-        self.direct_participant = None
-        self.curr_participant = None
-        self.next_direct = None
-        self.pounce_direction = None
-        self.pounces = None
-        self.pounced = None
-        self.bounce_type = "bangalore"
-        self.swearing = True
-        self.quiz_file = None
-        self.curr_slide = None
-        self.slide_message = None
-
-    def reset(self):
-        self.quiz_ongoing = None
-        self.quiz_name = None
-        self.quiz_channel = None
-        self.quizmaster = None
-        self.quizmaster_channel = None
-        self.question_ongoing = None
-        self.participants = None
-        self.participating = None
-        self.no_of_participants = 0
-        self.pouncing_allowed = None
-        self.joining_allowed = None
-        self.direct_participant = None
-        self.curr_participant = None
-        self.next_direct = None
-        self.pounce_direction = None
-        self.pounces = None
-        self.pounced = None
-        self.bounce_type = "bangalore"
-        self.swearing = True
-        self.quiz_file = None
-        self.curr_slide = None
-        self.slide_message = None
-
-
-bot = QCBot()
-bot.remove_command(name="help")
-
-
-# Bot Commands
 # General Commands
 @bot.command(name="help")
 async def command_help(ctx):
-    reply = "```fix\n"
-    reply += "Help for the Quiz Club Bot.\n"
-    reply += f"The prefix for this bot is - {bot.prefix}.\n\n"
-    reply += "General Commands - \n\n"
-    reply += (
-        "\t" + QuizCommands.command_help["usage"] + " -\n\t\t" +
-        QuizCommands.command_help["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_start_quiz["usage"] + " -\n\t\t" +
-        QuizCommands.command_start_quiz["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_join["usage"] + " -\n\t\t" +
-        QuizCommands.command_join["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_list["usage"] + " -\n\t\t" +
-        QuizCommands.command_list["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_scoreboard["usage"] + " -\n\t\t" +
-        QuizCommands.command_scoreboard["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_pass["usage"] + " -\n\t\t" +
-        QuizCommands.command_pass["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_remind["usage"] + " -\n\t\t" +
-        QuizCommands.command_remind["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_pounce["usage"] + " -\n\t\t" +
-        QuizCommands.command_pounce["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_swearing["usage"] + " -\n\t\t" +
-        QuizCommands.command_swearing["desc"] + "\n")
-    reply += "\nQM Commands - \n\n"
-    reply += (
-        "\t" + QuizCommands.command_end_quiz["usage"] + " -\n\t\t" +
-        QuizCommands.command_end_quiz["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_start_joining["usage"] + " -\n\t\t" +
-        QuizCommands.command_start_joining["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_end_joining["usage"] + " -\n\t\t" +
-        QuizCommands.command_end_joining["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_pounce_round["usage"] + " -\n\t\t" +
-        QuizCommands.command_pounce_round["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_direct["usage"] + " -\n\t\t" +
-        QuizCommands.command_direct["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_start_pounce["usage"] + " -\n\t\t" +
-        QuizCommands.command_start_pounce["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_end_pounce["usage"] + " -\n\t\t" +
-        QuizCommands.command_end_pounce["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_bounce["usage"] + " -\n\t\t" +
-        QuizCommands.command_bounce["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_score["usage"] + " -\n\t\t" +
-        QuizCommands.command_score["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_bounce_type["usage"] + " -\n\t\t" +
-        QuizCommands.command_bounce_type["desc"] + "\n")
-    reply += (
-        "\t" + QuizCommands.command_kick["usage"] + " -\n\t\t" +
-        QuizCommands.command_kick["desc"] + "\n")
-    reply += "```"
+    # reply += (
+    #     "\t" + QuizCommand.command_help["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_help["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_start_quiz["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_start_quiz["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_join["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_join["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_list["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_list["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_scoreboard["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_scoreboard["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_pass["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_pass["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_remind["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_remind["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_pounce["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_pounce["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_swearing["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_swearing["desc"] + "\n")
+    # reply += "\nQM Commands - \n\n"
+    # reply += (
+    #     "\t" + QuizCommand.command_end_quiz["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_end_quiz["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_start_joining["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_start_joining["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_end_joining["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_end_joining["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_pounce_round["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_pounce_round["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_direct["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_direct["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_start_pounce["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_start_pounce["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_end_pounce["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_end_pounce["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_bounce["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_bounce["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_score["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_score["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_bounce_type["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_bounce_type["desc"] + "\n")
+    # reply += (
+    #     "\t" + QuizCommand.command_kick["usage"] + " -\n\t\t" +
+    #     QuizCommand.command_kick["desc"] + "\n")
+    # reply += "```"
 
+    reply = "```fix\nHelp for the Quiz Club Bot.\n"
+    reply += f"The prefix for this bot is - {bot.prefix}.\n\n"
+
+    for attr in dir(QuizCommand):
+        if attr.startswith("command_"):
+
+            command = getattr(QuizCommand, attr)
+            if not command["general"]:
+                reply += "* "
+
+            reply += command["usage"] + " - \n\t\t" + command["desc"] + "\n\n"
+
+    reply += "\n* - QM Only\n"
+    reply += "```"
     await ctx.send(reply)
 
 
@@ -545,8 +248,8 @@ async def pounce_and_bounce_util(ctx, reply):
     if bot.curr_participant == bot.direct_participant:
         reply += await create_colored_message(
             "None of you got it",
-            bot.swearing,
-            swearing=True
+            swearing=bot.swearing,
+            plural=True
         )
 
         if bot.bounce_type == "bangalore":
@@ -647,7 +350,7 @@ async def pounce(ctx, *, answer):
         await ctx.send(reply)
         return
 
-    if not isinstance(ctx.message.channel, DMChannel):
+    if not isinstance(ctx.message.channel, discord.DMChannel):
         reply = await create_colored_message(
             "Pounce on DM",
             swearing=bot.swearing)
@@ -926,7 +629,7 @@ async def direct(ctx, team_num=None):
 
     if bot.quiz_file is not None and len(bot.quiz_file) != 0:
         bot.curr_slide += 1
-        bot.slide_message = await send_image(ctx, bot)
+        bot.slide_message = await send_slide(ctx, bot)
 
     bot.question_ongoing = True
     bot.direct_participant = team_num
@@ -1208,7 +911,7 @@ async def quiz_file(ctx):
         await ctx.send(reply)
         return
 
-    if not isinstance(ctx.message.channel, DMChannel):
+    if not isinstance(ctx.message.channel, discord.DMChannel):
         reply = await create_colored_message(
             "Send file on DM",
             swearing=bot.swearing)
@@ -1236,58 +939,3 @@ async def quiz_file(ctx):
     bot.curr_slide = -1
 
     await ctx.send(reply)
-
-
-# Bot Events
-@bot.event
-async def on_ready():
-    for guild in bot.guilds:
-        if guild.system_channel is None:
-            pass
-
-        reply = await create_colored_message(
-            "Hey, I am up and running now",
-            swearing=False
-        )
-
-        await guild.system_channel.send(reply)
-
-
-@bot.event
-async def on_reaction_add(reaction, member):
-    if bot.slide_message is None:
-        return
-
-    if reaction.message.id != bot.slide_message.id:
-        return
-
-    if member != bot.quizmaster:
-        return
-
-    if reaction.emoji == emojis.encode(":arrow_forward:"):
-        bot.curr_slide += 1
-        bot.slide_message = await send_image(
-            reaction.message.channel, bot)
-    elif reaction.emoji == emojis.encode(":arrow_backward:"):
-        bot.curr_slide -= 1
-        bot.slide_message = await send_image(
-            reaction.message.channel, bot)
-
-
-@bot.event
-async def on_command_error(ctx, error):
-    print(error, file=sys.stderr)
-    reply = await create_colored_message(
-        "I am not really sure what you tried to do there.\n\n"
-        + "Try viewing help",
-        swearing=bot.swearing
-    )
-
-    await ctx.send(reply)
-
-
-if __name__ == "__main__":
-    # This is the old API token for my bot.
-    # Replace this with your generated token before running.
-    discord_api_key = ""
-    bot.run(discord_api_key)
