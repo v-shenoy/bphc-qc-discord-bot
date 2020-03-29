@@ -97,6 +97,10 @@ class QuizCommand:
         "usage": "quizFile [along with an attached pdf file]",
         "desc": "send the bot the pdf file to be used for the quiz",
         "general": False}
+    command_quiz_file = {
+        "usage": "slide [ slide_number ]",
+        "desc": "send the given numbered slide, number is optional",
+        "general": False}
 
 
 class Participant:
@@ -109,10 +113,14 @@ class Participant:
         member (discord.user.User): object representing Discord member
         nick (str): nick of the participant for the quiz
         score (int): score of the participant for the quiz
+        kicked (bool): if the participant has left the quiz
+        pounced (bool): if participant has pounced for the current question
     """
 
-    def __init__(self, idt, member, nick, score=0):
+    def __init__(self, idt, member, nick):
         self.id = idt
         self.member = member
         self.nick = nick
-        self.score = score
+        self.score = 0
+        self.kicked = False
+        self.pounced = False

@@ -2,6 +2,11 @@
 import discord
 
 from pdf2image import convert_from_bytes
+from pdf2image.exceptions import (
+    PDFInfoNotInstalledError,
+    PDFPageCountError,
+    PDFSyntaxError
+)
 import emojis
 
 from qc_bot.util import create_colored_message, send_slide
@@ -12,69 +17,6 @@ from qc_bot.qc_bot import bot
 # General Commands
 @bot.command(name="help")
 async def command_help(ctx):
-    # reply += (
-    #     "\t" + QuizCommand.command_help["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_help["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_start_quiz["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_start_quiz["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_join["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_join["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_list["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_list["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_scoreboard["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_scoreboard["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_pass["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_pass["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_remind["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_remind["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_pounce["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_pounce["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_swearing["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_swearing["desc"] + "\n")
-    # reply += "\nQM Commands - \n\n"
-    # reply += (
-    #     "\t" + QuizCommand.command_end_quiz["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_end_quiz["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_start_joining["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_start_joining["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_end_joining["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_end_joining["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_pounce_round["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_pounce_round["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_direct["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_direct["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_start_pounce["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_start_pounce["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_end_pounce["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_end_pounce["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_bounce["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_bounce["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_score["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_score["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_bounce_type["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_bounce_type["desc"] + "\n")
-    # reply += (
-    #     "\t" + QuizCommand.command_kick["usage"] + " -\n\t\t" +
-    #     QuizCommand.command_kick["desc"] + "\n")
-    # reply += "```"
-
     reply = "```fix\nHelp for the Quiz Club Bot.\n"
     reply += f"The prefix for this bot is - {bot.prefix}.\n\n"
 
@@ -112,12 +54,11 @@ async def start_quiz(ctx, *, quiz_name):
     bot.participating = {}
     bot.pouncing_allowed = False
     bot.joining_allowed = False
-    bot.direct_participant = False
+    bot.direct_participant = None
     bot.curr_participant = None
     bot.next_direct = 0
     bot.pounce_direction = "CW"
     bot.pounces = None
-    bot.pounced = None
     bot.swearing = True
 
     reply = f"```fix\nStarting quiz - {quiz_name}.\n\n"
@@ -154,14 +95,13 @@ async def join(ctx, *, nick):
 
     if bot.participating.get(ctx.author.id) is not None:
         reply = await create_colored_message(
-            "You are already participating",
+            "You already joined once",
             swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
-    participant = Participant(
-        bot.no_of_participants, ctx.author, nick)
+    participant = Participant(bot.no_of_participants, ctx.author, nick)
 
     bot.participants.append(participant)
     bot.participating[ctx.author.id] = bot.no_of_participants
@@ -189,11 +129,15 @@ async def list_participants(ctx):
     reply = f"```fix\nList of participants in {bot.quiz_name} - \n\n"
 
     for idx, participant in enumerate(bot.participants):
-        reply += "\t{}. {} as {}".format(
+        reply += "\t{}. {} as {} [Number. {}]".format(
             idx + 1,
             participant.member,
             participant.nick,
+            participant.id + 1
         )
+
+        if participant.kicked:
+            reply += " [Kicked]"
         reply += "\n"
 
     reply += "```"
@@ -215,33 +159,39 @@ async def scoreboard(ctx):
             participant.nick,
             participant.score
         )
+
+        if participant.kicked:
+            reply += " [Kicked]"
         reply += "\n"
 
     reply += "```"
     await ctx.send(reply)
 
 
-async def pounce_and_bounce_util(ctx, reply):
+async def pass_and_bounce_util(ctx, reply):
     while True:
         if bot.pounce_direction == "CW":
-            bot.curr_participant = (
-                (bot.curr_participant + 1) % bot.no_of_participants
-            )
+            bot.curr_participant += 1
         else:
-            bot.curr_participant = (
-                (bot.curr_participant - 1) % bot.no_of_participants
-            )
+            bot.curr_participant -= 1
+        bot.curr_participant %= bot.no_of_participants
 
         if bot.curr_participant == bot.direct_participant:
             break
 
         participant = bot.participants[bot.curr_participant]
-        if not bot.pounced.get(str(participant.member)):
+        if participant.kicked:
+            reply += await create_colored_message(
+                f"{participant.member} [Number. {participant.id + 1}] "
+                + "is not participating anymore",
+                swearing=False
+            )
+        elif not participant.pounced:
             break
         else:
             reply += await create_colored_message(
                 f"{participant.member} [Number. {participant.id + 1}] "
-                + "has pounced. moving on.\n",
+                + "has pounced. moving on",
                 swearing=False
             )
 
@@ -253,7 +203,9 @@ async def pounce_and_bounce_util(ctx, reply):
         )
 
         if bot.bounce_type == "bangalore":
-            bot.direct_participant = bot.direct_participant + 1
+            bot.next_direct = bot.direct_participant + 1
+        else:
+            bot.next_direct = bot.direct_participant
 
         await ctx.send(reply)
         return
@@ -300,7 +252,7 @@ async def pass_question(ctx):
         swearing=False
     )
 
-    await pounce_and_bounce_util(ctx, reply)
+    await pass_and_bounce_util(ctx, reply)
 
 
 @bot.command(name="remind")
@@ -350,7 +302,16 @@ async def pounce(ctx, *, answer):
         await ctx.send(reply)
         return
 
+    if not bot.pouncing_allowed:
+        reply = await create_colored_message(
+            "Pounce is closed",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
     if not isinstance(ctx.message.channel, discord.DMChannel):
+        await ctx.message.delete()
         reply = await create_colored_message(
             "Pounce on DM",
             swearing=bot.swearing)
@@ -358,7 +319,7 @@ async def pounce(ctx, *, answer):
         return
 
     idt = bot.participating.get(ctx.author.id)
-    if idt is None:
+    if idt is None or idt < 0:
         reply = await create_colored_message(
             "You are not participating",
             swearing=bot.swearing
@@ -375,7 +336,8 @@ async def pounce(ctx, *, answer):
         await ctx.send(reply)
         return
 
-    if bot.pounced.get(ctx.author.id):
+    participant = bot.participants[idt]
+    if participant.pounced:
         reply = await create_colored_message(
             "You already pounced",
             swearing=bot.swearing
@@ -383,7 +345,7 @@ async def pounce(ctx, *, answer):
         await ctx.send(reply)
         return
 
-    bot.pounced[ctx.author.id] = True
+    participant.pounced = True
     pounce_answer = await create_colored_message(
         f"{ctx.author} [Number. {idt + 1}] -  {answer}",
         swearing=False
@@ -440,7 +402,7 @@ async def swearing(ctx, mode):
         bot.swearing = False
     else:
         reply = await create_colored_message(
-            "Not a valid mode",
+            "Incorrect argument to command",
             swearing=bot.swearing
         )
         await ctx.send(reply)
@@ -530,7 +492,7 @@ async def start_joining(ctx):
 
 
 @bot.command(name="endJoining")
-async def endJoining(ctx):
+async def end_joining(ctx):
     if not bot.quiz_ongoing:
         reply = await create_colored_message(
             "There's no ongoing quiz",
@@ -588,7 +550,7 @@ async def pounce_round(ctx, direction="CW"):
         )
         bot.direction = direction
         bot.next_direct = 0
-    elif direction != "ACW":
+    elif direction == "ACW":
         reply = await create_colored_message(
             "Anti-Clockwise pounce round beginning",
             swearing=False
@@ -624,12 +586,9 @@ async def direct(ctx, team_num=None):
 
     try:
         team_num = int(team_num) - 1
-    except ValueError:
+    except (TypeError, ValueError):
+        bot.next_direct %= bot.no_of_participants
         team_num = bot.next_direct
-
-    if bot.quiz_file is not None and len(bot.quiz_file) != 0:
-        bot.curr_slide += 1
-        bot.slide_message = await send_slide(ctx, bot)
 
     bot.question_ongoing = True
     bot.direct_participant = team_num
@@ -639,9 +598,12 @@ async def direct(ctx, team_num=None):
 
     reply = f"{participant.member.mention}"
     reply += await create_colored_message(
-        f"[Number. {participant.id + 1}] -  It's your turn",
+        f"[Number. {participant.id + 1}] -  It's your directhow",
         swearing=False
     )
+
+    for participant in bot.participants:
+        participant.pounced = False
 
     await ctx.send(reply)
 
@@ -682,7 +644,6 @@ async def start_pounce(ctx):
 
     bot.pouncing_allowed = True
     bot.pounces = []
-    bot.pounced = {}
 
     reply = await create_colored_message(
         "Pouncing for this question is now allowed.\n\n"
@@ -694,7 +655,7 @@ async def start_pounce(ctx):
 
 
 @bot.command(name="endPounce")
-async def endPounce(ctx):
+async def end_pounce(ctx):
     if not bot.quiz_ongoing:
         reply = await create_colored_message(
             "There's no ongoing quiz",
@@ -728,7 +689,7 @@ async def endPounce(ctx):
         return
 
     bot.pouncing_allowed = False
-    reply = "```fix\nPounces for this question - \n\n```"
+    reply += "```fix\n\n\nPounces for this question - \n\n```"
     reply += "\n\n".join(bot.pounces)
 
     await bot.quizmaster_channel.send(reply)
@@ -773,7 +734,7 @@ async def bounce(ctx):
         swearing=False
     )
 
-    await pounce_and_bounce_util(ctx, reply)
+    await pass_and_bounce_util(ctx, reply)
 
 
 @bot.command(name="score")
@@ -796,7 +757,7 @@ async def score(ctx, points, *participants):
 
     try:
         points = int(points)
-    except Exception:
+    except ValueError:
         reply = await create_colored_message(
             "Points are supposed to be integers",
             swearing=False
@@ -813,7 +774,7 @@ async def score(ctx, points, *participants):
                 bot.participants[team_num].score + points,
             )
             bot.participants[team_num].score += points
-            bot.next_direct = team_num
+            bot.next_direct = team_num + 1
 
         except (ValueError, IndexError):
             pass
@@ -879,16 +840,26 @@ async def kick(ctx, *participants):
         try:
             team_num = int(num) - 1
             participant = bot.participants[team_num]
+
+            participating = bot.participating.get(participant.member.id)
+            if participating is None or participating < 0:
+                continue
+
             reply += "{} [Number. {}] has been kicked from the quiz".format(
                 participant.member,
                 participant.id + 1,
             )
             reply += ".\n"
-            del bot.participants[team_num]
-        except (ValueError, IndexError):
+            participant.kicked = True
+            bot.participating[participant.member.id] = -1
+        except (KeyError, ValueError, IndexError):
             pass
 
     reply += "```"
+
+    # ```fix\n``` only
+    if len(reply) <= 10:
+        return
 
     await ctx.send(reply)
 
@@ -912,8 +883,9 @@ async def quiz_file(ctx):
         return
 
     if not isinstance(ctx.message.channel, discord.DMChannel):
+        await ctx.message.delete()
         reply = await create_colored_message(
-            "Send file on DM",
+            "Next time send file on DM",
             swearing=bot.swearing)
         await ctx.send(reply)
         return
@@ -925,10 +897,18 @@ async def quiz_file(ctx):
         await ctx.send(reply)
         return
 
-    images = []
-    for attachment in ctx.message.attachments:
+    images = None
+    try:
+        attachment = ctx.message.attachments[0]
         attachment_bytes = await attachment.read()
-        images.extend(convert_from_bytes(attachment_bytes, fmt="JPEG"))
+        images = convert_from_bytes(attachment_bytes, fmt="JPEG")
+    except (PDFInfoNotInstalledError, PDFPageCountError, PDFSyntaxError):
+        reply = await create_colored_message(
+            "Error in PDF file",
+            swearing=False
+        )
+        await ctx.send(reply)
+        return
 
     reply = await create_colored_message(
         "Received the file",
@@ -939,3 +919,46 @@ async def quiz_file(ctx):
     bot.curr_slide = -1
 
     await ctx.send(reply)
+
+
+@bot.command(name="slide")
+async def slide(ctx, num=None):
+    if not bot.quiz_ongoing:
+        reply = await create_colored_message(
+            "There's no ongoing quiz",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if ctx.author != bot.quizmaster:
+        reply = await create_colored_message(
+            "You are not the QM",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if bot.quiz_file is None or len(bot.quiz_file) == 0:
+        reply = await create_colored_message(
+            "No slide to display",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if num is not None:
+        try:
+            num = int(num) - 1
+            bot.curr_slide = num
+        except ValueError:
+            reply = await create_colored_message(
+                "Slide number not an integer",
+                swearing=bot.swearing
+            )
+            await ctx.send(reply)
+            return
+    else:
+        bot.curr_slide += 1
+
+    bot.slide_message = await send_slide(ctx, bot)

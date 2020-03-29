@@ -69,17 +69,10 @@ async def create_colored_message(message_string, swearing, plural=False):
 
 
 async def send_slide(ctx, bot, direction="Forward"):
-    if bot.curr_slide == -1:
+    if bot.curr_slide < 0 or bot.curr_slide >= len(bot.quiz_file):
         reply = await create_colored_message(
-            "Reached the beginning of the quiz file",
-            swearing=False
-        )
-        await ctx.send(reply)
-        return
-
-    if bot.curr_slide == len(bot.quiz_file):
-        reply = await create_colored_message(
-            "Reached the end of the quiz file",
+            f"Slide index out of range.\n\n"
+            + f"Try in range [1, {len(bot.quiz_file)}]",
             swearing=False
         )
         await ctx.send(reply)

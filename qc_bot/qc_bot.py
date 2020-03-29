@@ -35,8 +35,6 @@ class QCBot(commands.Bot):
         pounce_direction (str): CW or ACW represnging clockwise or
             anti-clockwise
         pounces ([Str]): list of pounces for the current question
-        pounced ({str:}): dictionary indication which participants have
-            pounced
         bounce_type (str): indicates type of bounce, bangalore (default)
             or normal
         swearing (bool): indicates whether the bot should swear or not
@@ -66,7 +64,6 @@ class QCBot(commands.Bot):
         self.next_direct = None
         self.pounce_direction = None
         self.pounces = None
-        self.pounced = None
         self.bounce_type = "bangalore"
         self.swearing = True
         self.quiz_file = None
@@ -90,7 +87,6 @@ class QCBot(commands.Bot):
         self.next_direct = None
         self.pounce_direction = None
         self.pounces = None
-        self.pounced = None
         self.bounce_type = "bangalore"
         self.swearing = True
         self.quiz_file = None
