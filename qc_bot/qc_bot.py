@@ -51,7 +51,7 @@ class QCBot(commands.Bot):
         self.quiz_ongoing = None
         self.quiz_name = None
         self.quiz_channel = None
-        self.quizmaster = None
+        self.quizmasters = []
         self.quizmaster_channel = None
         self.question_ongoing = None
         self.participants = None
@@ -74,7 +74,7 @@ class QCBot(commands.Bot):
         self.quiz_ongoing = None
         self.quiz_name = None
         self.quiz_channel = None
-        self.quizmaster = None
+        self.quizmasters = []
         self.quizmaster_channel = None
         self.question_ongoing = None
         self.participants = None

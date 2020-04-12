@@ -1,4 +1,3 @@
-
 import discord
 
 from pdf2image import convert_from_bytes
@@ -47,8 +46,8 @@ async def start_quiz(ctx, *, quiz_name):
     bot.quiz_ongoing = True
     bot.quiz_name = quiz_name
     bot.quiz_channel = ctx.message.channel
-    bot.quizmaster = ctx.author
-    bot.quizmaster_channel = await bot.quizmaster.create_dm()
+    bot.quizmasters.append(ctx.author)
+    bot.quizmaster_channel = await ctx.author.create_dm()
     bot.question_ongoing = False
     bot.participants = []
     bot.participating = {}
@@ -62,24 +61,24 @@ async def start_quiz(ctx, *, quiz_name):
     bot.swearing = True
 
     reply = f"```fix\nStarting quiz - {quiz_name}.\n\n"
-    reply += f"{bot.quizmaster} will be your QM for this quiz.```"
+    reply += f"{ctx.author} will be your QM for this quiz.```"
 
     await ctx.send(reply)
 
 
 @bot.command(name="join")
 async def join(ctx, *, nick):
-    if ctx.author == bot.quizmaster:
+    if not bot.quiz_ongoing:
         reply = await create_colored_message(
-            "QM cannot join the quiz",
+            "There's no ongoing quiz",
             swearing=bot.swearing
         )
         await ctx.send(reply)
         return
 
-    if not bot.quiz_ongoing:
+    if ctx.author in bot.quizmasters:
         reply = await create_colored_message(
-            "There's no ongoing quiz",
+            "QM cannot join the quiz",
             swearing=bot.swearing
         )
         await ctx.send(reply)
@@ -146,6 +145,14 @@ async def list_participants(ctx):
 
 @bot.command(name="scoreboard")
 async def scoreboard(ctx):
+    if not bot.quiz_ongoing:
+        reply = await create_colored_message(
+            "There's no ongoing quiz",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
     sorted_list = sorted(
         bot.participants, key=lambda item: item.score, reverse=True)
 
@@ -412,6 +419,40 @@ async def swearing(ctx, mode):
     await ctx.send(reply)
 
 
+@bot.command(name="leave")
+async def leave(ctx):
+    if not bot.quiz_ongoing:
+        reply = await create_colored_message(
+            "There's no ongoing quiz",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    idt = bot.participating.get(ctx.author.id)
+    if idt is None or idt < 0:
+        reply = await create_colored_message(
+            "You are not participating",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    participant = bot.participants[idt]
+    reply = await create_colored_message(
+            "{} [Number. {}] has left the quiz".format(
+                participant.member,
+                participant.id + 1,
+            ),
+            swearing=bot.swearing
+        )
+
+    participant.kicked = True
+    bot.participating[participant.member.id] = -1
+
+    await ctx.send(reply)
+
+
 # QM Commands
 @bot.command(name="endQuiz")
 async def end_quiz(ctx):
@@ -423,7 +464,7 @@ async def end_quiz(ctx):
         await ctx.send(reply)
         return
 
-    if ctx.author != bot.quizmaster:
+    if ctx.author not in bot.quizmasters:
         reply = await create_colored_message(
             "You are not the QM",
             swearing=bot.swearing
@@ -432,7 +473,8 @@ async def end_quiz(ctx):
         return
 
     reply = f"```fix\nEnding quiz - {bot.quiz_name}.\n"
-    reply += f"QM - {bot.quizmaster}.\n\n"
+    quizmasters = ", ".join([str(qm) for qm in bot.quizmasters])
+    reply += f"QMs - {quizmasters}.\n\n"
     reply += "Thank you for participating.\n\n"
 
     sorted_list = sorted(
@@ -467,7 +509,7 @@ async def start_joining(ctx):
         await ctx.send(reply)
         return
 
-    if ctx.author != bot.quizmaster:
+    if ctx.author not in bot.quizmasters:
         reply = await create_colored_message(
             "You are not the QM",
             swearing=bot.swearing
@@ -501,7 +543,7 @@ async def end_joining(ctx):
         await ctx.send(reply)
         return
 
-    if ctx.author != bot.quizmaster:
+    if ctx.author not in bot.quizmasters:
         reply = await create_colored_message(
             "You are not the QM",
             swearing=bot.swearing
@@ -534,7 +576,7 @@ async def pounce_round(ctx, direction="CW"):
         await ctx.send(reply)
         return
 
-    if ctx.author != bot.quizmaster:
+    if ctx.author not in bot.quizmasters:
         reply = await create_colored_message(
             "You are not the QM",
             swearing=bot.swearing
@@ -548,14 +590,14 @@ async def pounce_round(ctx, direction="CW"):
             "Clockwise pounce round beginning",
             swearing=False
         )
-        bot.direction = direction
+        bot.pounce_direction = direction
         bot.next_direct = 0
     elif direction == "ACW":
         reply = await create_colored_message(
             "Anti-Clockwise pounce round beginning",
             swearing=False
         )
-        bot.direction = direction
+        bot.pounce_direction = direction
         bot.next_direct = bot.no_of_participants - 1
     else:
         reply = await create_colored_message(
@@ -576,7 +618,7 @@ async def direct(ctx, team_num=None):
         await ctx.send(reply)
         return
 
-    if ctx.author != bot.quizmaster:
+    if ctx.author not in bot.quizmasters:
         reply = await create_colored_message(
             "You are not the QM",
             swearing=bot.swearing
@@ -598,7 +640,7 @@ async def direct(ctx, team_num=None):
 
     reply = f"{participant.member.mention}"
     reply += await create_colored_message(
-        f"[Number. {participant.id + 1}] -  It's your directhow",
+        f"[Number. {participant.id + 1}] -  It's your direct now",
         swearing=False
     )
 
@@ -618,7 +660,7 @@ async def start_pounce(ctx):
         await ctx.send(reply)
         return
 
-    if ctx.author != bot.quizmaster:
+    if ctx.author not in bot.quizmasters:
         reply = await create_colored_message(
             "You are not the QM",
             swearing=bot.swearing
@@ -664,7 +706,7 @@ async def end_pounce(ctx):
         await ctx.send(reply)
         return
 
-    if ctx.author != bot.quizmaster:
+    if ctx.author not in bot.quizmasters:
         reply = await create_colored_message(
             "You are not the QM",
             swearing=bot.swearing
@@ -689,7 +731,7 @@ async def end_pounce(ctx):
         return
 
     bot.pouncing_allowed = False
-    reply += "```fix\n\n\nPounces for this question - \n\n```"
+    reply = "```fix\n\n\nPounces for this question - \n\n```"
     reply += "\n\n".join(bot.pounces)
 
     await bot.quizmaster_channel.send(reply)
@@ -712,7 +754,7 @@ async def bounce(ctx):
         await ctx.send(reply)
         return
 
-    if ctx.author != bot.quizmaster:
+    if ctx.author not in bot.quizmasters:
         reply = await create_colored_message(
             "You are not the QM",
             swearing=bot.swearing
@@ -747,7 +789,7 @@ async def score(ctx, points, *participants):
         await ctx.send(reply)
         return
 
-    if ctx.author != bot.quizmaster:
+    if ctx.author not in bot.quizmasters:
         reply = await create_colored_message(
             "You are not the QM",
             swearing=bot.swearing
@@ -777,7 +819,10 @@ async def score(ctx, points, *participants):
             bot.next_direct = team_num + 1
 
         except (ValueError, IndexError):
-            pass
+            reply += "Error - Could not score participant number {}".format(
+                participant
+            )
+            reply += ".\n"
 
     reply += "```"
     await ctx.send(reply)
@@ -793,7 +838,7 @@ async def bounce_type(ctx, bounce_type):
         await ctx.send(reply)
         return
 
-    if ctx.author != bot.quizmaster:
+    if ctx.author not in bot.quizmasters:
         reply = await create_colored_message(
             "You are not the QM",
             swearing=bot.swearing
@@ -827,7 +872,7 @@ async def kick(ctx, *participants):
         await ctx.send(reply)
         return
 
-    if ctx.author != bot.quizmaster:
+    if ctx.author not in bot.quizmasters:
         reply = await create_colored_message(
             "You are not the QM",
             swearing=bot.swearing
@@ -853,13 +898,9 @@ async def kick(ctx, *participants):
             participant.kicked = True
             bot.participating[participant.member.id] = -1
         except (KeyError, ValueError, IndexError):
-            pass
+            reply += f"Error - Could not kick participant number {num}.\n"
 
     reply += "```"
-
-    # ```fix\n``` only
-    if len(reply) <= 10:
-        return
 
     await ctx.send(reply)
 
@@ -874,7 +915,7 @@ async def quiz_file(ctx):
         await ctx.send(reply)
         return
 
-    if ctx.author != bot.quizmaster:
+    if ctx.author not in bot.quizmasters:
         reply = await create_colored_message(
             "You are not the QM",
             swearing=bot.swearing
@@ -885,14 +926,14 @@ async def quiz_file(ctx):
     if not isinstance(ctx.message.channel, discord.DMChannel):
         await ctx.message.delete()
         reply = await create_colored_message(
-            "Next time send file on DM",
+            "Send file on DM",
             swearing=bot.swearing)
         await ctx.send(reply)
         return
 
     if not ctx.message.attachments:
         reply = await create_colored_message(
-            "Coult not find file",
+            "Could not find file",
             swearing=bot.swearing)
         await ctx.send(reply)
         return
@@ -931,7 +972,7 @@ async def slide(ctx, num=None):
         await ctx.send(reply)
         return
 
-    if ctx.author != bot.quizmaster:
+    if ctx.author not in bot.quizmasters:
         reply = await create_colored_message(
             "You are not the QM",
             swearing=bot.swearing
@@ -962,3 +1003,32 @@ async def slide(ctx, num=None):
         bot.curr_slide += 1
 
     bot.slide_message = await send_slide(ctx, bot)
+
+
+@bot.command(name="addQM")
+async def add_quizmaster(ctx, *text):
+    if not bot.quiz_ongoing:
+        reply = await create_colored_message(
+            "There's no ongoing quiz",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    if ctx.author not in bot.quizmasters:
+        reply = await create_colored_message(
+            "You are not the QM",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    for member in ctx.message.mentions:
+        bot.quizmasters.append(member)
+
+        reply = await create_colored_message(
+            f"{member} has been added as QM",
+            swearing=False
+        )
+
+        await ctx.send(reply)

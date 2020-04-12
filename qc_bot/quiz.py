@@ -47,6 +47,10 @@ class QuizCommand:
         "usage": "swearing mode",
         "desc": "set swearing mode on (default) or off",
         "general": True}
+    command_leave = {
+        "usage": "leave",
+        "desc": "leave the quiz",
+        "general": True}
 
     # QM Only Commands
     command_end_quiz = {
@@ -97,7 +101,7 @@ class QuizCommand:
         "usage": "quizFile [along with an attached pdf file]",
         "desc": "send the bot the pdf file to be used for the quiz",
         "general": False}
-    command_quiz_file = {
+    command_slide = {
         "usage": "slide [ slide_number ]",
         "desc": "send the given numbered slide, number is optional",
         "general": False}
