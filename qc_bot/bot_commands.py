@@ -92,11 +92,25 @@ async def join(ctx, *, nick):
         await ctx.send(reply)
         return
 
-    if bot.participating.get(ctx.author.id) is not None:
-        reply = await create_colored_message(
-            "You already joined once",
-            swearing=bot.swearing
-        )
+    idt = bot.participating.get(ctx.author.id)
+
+    if idt is not None:
+        participant = bot.participants[idt]
+        reply = ""
+        if participant.kicked:
+            participant.kicked = False
+            reply += await create_colored_message(
+                "{} [Number. {}] has rejoined the quiz".format(
+                    participant.member,
+                    participant.id + 1
+                ),
+                swearing=False
+            )
+        else:
+            reply = await create_colored_message(
+                "You already joined once",
+                swearing=bot.swearing
+            )
         await ctx.send(reply)
         return
 
@@ -217,7 +231,7 @@ async def pass_and_bounce_util(ctx, reply):
         await ctx.send(reply)
         return
 
-    reply = f"{participant.member.mention}"
+    reply += f"{participant.member.mention}"
     reply += await create_colored_message(
         f"[Number. {participant.id + 1}] -  It's your turn",
         swearing=bot.swearing
@@ -326,7 +340,7 @@ async def pounce(ctx, *, answer):
         return
 
     idt = bot.participating.get(ctx.author.id)
-    if idt is None or idt < 0:
+    if idt is None:
         reply = await create_colored_message(
             "You are not participating",
             swearing=bot.swearing
@@ -334,8 +348,17 @@ async def pounce(ctx, *, answer):
         await ctx.send(reply)
         return
 
-    participant = bot.participants[bot.curr_participant]
-    if ctx.author == participant.member:
+    participant = bot.participants[idt]
+    if participant.kicked:
+        reply = await create_colored_message(
+            "You are not participating",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    curr_participant = bot.participants[bot.curr_participant]
+    if ctx.author == curr_participant.member:
         reply = await create_colored_message(
             "It's your direct",
             swearing=bot.swearing
@@ -343,7 +366,6 @@ async def pounce(ctx, *, answer):
         await ctx.send(reply)
         return
 
-    participant = bot.participants[idt]
     if participant.pounced:
         reply = await create_colored_message(
             "You already pounced",
@@ -430,7 +452,7 @@ async def leave(ctx):
         return
 
     idt = bot.participating.get(ctx.author.id)
-    if idt is None or idt < 0:
+    if idt is None:
         reply = await create_colored_message(
             "You are not participating",
             swearing=bot.swearing
@@ -439,16 +461,16 @@ async def leave(ctx):
         return
 
     participant = bot.participants[idt]
+
     reply = await create_colored_message(
             "{} [Number. {}] has left the quiz".format(
                 participant.member,
                 participant.id + 1,
             ),
-            swearing=bot.swearing
+            swearing=False
         )
 
     participant.kicked = True
-    bot.participating[participant.member.id] = -1
 
     await ctx.send(reply)
 
@@ -632,11 +654,19 @@ async def direct(ctx, team_num=None):
         bot.next_direct %= bot.no_of_participants
         team_num = bot.next_direct
 
-    bot.question_ongoing = True
     bot.direct_participant = team_num
     bot.curr_participant = team_num
 
     participant = bot.participants[bot.curr_participant]
+    if participant.kicked:
+        reply = await create_colored_message(
+            f"[Number. {participant.id + 1}] is not participating anymore",
+            swearing=bot.swearing
+        )
+        await ctx.send(reply)
+        return
+
+    bot.question_ongoing = True
 
     reply = f"{participant.member.mention}"
     reply += await create_colored_message(
@@ -886,8 +916,7 @@ async def kick(ctx, *participants):
             team_num = int(num) - 1
             participant = bot.participants[team_num]
 
-            participating = bot.participating.get(participant.member.id)
-            if participating is None or participating < 0:
+            if participant.kicked:
                 continue
 
             reply += "{} [Number. {}] has been kicked from the quiz".format(
@@ -896,7 +925,6 @@ async def kick(ctx, *participants):
             )
             reply += ".\n"
             participant.kicked = True
-            bot.participating[participant.member.id] = -1
         except (KeyError, ValueError, IndexError):
             reply += f"Error - Could not kick participant number {num}.\n"
 

@@ -1,3 +1,5 @@
+import json
+
 from qc_bot.qc_bot import bot
 from qc_bot import bot_commands, bot_events
 # Modules bot_commands, bot_events are imported
@@ -5,7 +7,9 @@ from qc_bot import bot_commands, bot_events
 
 
 if __name__ == "__main__":
-    # Example using old API key
-    # Insert your generated API token before running.
-    discord_api_key = "NjkxNzIzMDUzMTMwMDU1Nzkx.XnyetA.KHYYDZTg8HBqc4fYN9M8joC-UKI"
+    config = None
+    with open("config.json", "r") as config_file:
+        config = json.load(config_file)
+
+    discord_api_key = config["API_KEY"]
     bot.run(discord_api_key)

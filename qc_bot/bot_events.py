@@ -28,7 +28,7 @@ async def on_reaction_add(reaction, member):
     if reaction.message.id != bot.slide_message.id:
         return
 
-    if member != bot.quizmaster:
+    if member not in bot.quizmasters:
         return
 
     if reaction.emoji == emojis.encode(":arrow_forward:"):
